@@ -1,0 +1,4 @@
+BasedOnStyle: Google
+SortIncludes: false
+ContinuationIndentWidth: 2
+AllowShortFunctionsOnASingleLine: Empty
