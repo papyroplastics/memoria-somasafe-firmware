@@ -6,3 +6,8 @@ CompileFlags:
 
 InlayHints:
   Enabled: No
+
+Diagnostics:
+  Suppress:
+    - pp_file_not_found
+    - unused-includes
