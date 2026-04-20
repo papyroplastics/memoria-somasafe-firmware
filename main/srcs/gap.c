@@ -81,7 +81,7 @@ int prepare_adv(void) {
   }
 
   // Set advertisement data
-  const ble_uuid16_t adv_svc_uuids[] = {heart_rate_svc_uuid};
+  const ble_uuid16_t adv_svc_uuids[] = {hr_svc_uuid};
 
   const struct ble_hs_adv_fields adv_fields = {
     .flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP,

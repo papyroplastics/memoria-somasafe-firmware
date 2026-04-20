@@ -4,7 +4,8 @@
 #include "gatt.h"
 
 #include <nimble/nimble_port.h>
-#include <nimble/nimble_port_freertos.h>
+#include <nimble/nimble_npl_os.h>
+#include <stdlib.h>
 
 static const char tag[] = "nimble-example-ble";
 
@@ -12,8 +13,8 @@ const char device_name[] = "Heart rate monitor";
 const char device_name_short[] = "HRM";
 const uint16_t device_appearance = 0x0340;  // heart
 
-const ble_uuid16_t heart_rate_svc_uuid = BLE_UUID16_INIT(0x180D);
-const ble_uuid16_t heart_rate_chr_uuid = BLE_UUID16_INIT(0x2A37);
+const ble_uuid16_t hr_svc_uuid = BLE_UUID16_INIT(0x180D);
+const ble_uuid16_t hr_chr_uuid = BLE_UUID16_INIT(0x2A37);
 
 static void on_stack_reset(int reason) {
   ESP_LOGI(tag, "NimBLE stack reset with reason %d", reason);
@@ -56,5 +57,39 @@ void ble_task(void *param) {
   for (;;) {
     nimble_port_run();
   }
+}
+
+typedef struct {
+    void (*cb)(void*);
+    void *arg;
+} ble_work_t;
+
+static void handle_work(struct ble_npl_event *ev) {
+    ble_work_t *work = ble_npl_event_get_arg(ev);
+    work->cb(work->arg);
+    free(work);
+    free(ev);
+}
+
+/**
+ * for those APIs see: 
+ * - $IDF_PATH/components/bt/host/nimble/nimble/porting/npl/freertos/include/nimble/nimble_npl_os.h
+ * - $IDF_PATH/components/bt/host/nimble/nimble/porting/npl/freertos/src/npl_os_freertos.c
+ */
+int push_work_to_nimple_host_task(void (*cb)(void*), void *arg) {
+  ble_work_t *work = malloc(sizeof(ble_work_t));
+  if (work == NULL) return 1;
+
+  work->cb = cb;
+  work->arg = arg;
+
+  struct ble_npl_event *ev = malloc(sizeof(struct ble_npl_event));
+  if (ev == NULL) {
+    free(work);
+    return 1;
+  }
+  ble_npl_event_init(ev, handle_work, work);
+  ble_npl_eventq_put(nimble_port_get_dflt_eventq(), ev);
+  return 0;
 }
 
