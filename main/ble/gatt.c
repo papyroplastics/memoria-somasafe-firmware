@@ -1,7 +1,7 @@
 #include <esp_log.h>
 #include <host/ble_hs.h>
 #include <host/ble_gatt.h>
-#include <host/ble_hs_mbuf.h>
+#include <lwip/def.h>
 #include <services/gatt/ble_svc_gatt.h>
 
 #include "ble/gatt.h"
@@ -59,36 +59,27 @@ static int model_err_to_att_err(enum model_load_err err) {
   return BLE_ATT_ERR_UNLIKELY;
 }
 
-static int append_size_t_le(struct os_mbuf *om, size_t value) {
-  uint8_t value_buf[sizeof(size_t)] = {0};
-  for (size_t i = 0; i < sizeof(size_t); ++i) {
-    value_buf[i] = (uint8_t)(value >> (8 * i));
-  }
-
-  if (os_mbuf_append(om, value_buf, sizeof(value_buf)) != 0) {
+static int append_u32(struct os_mbuf *om, uint32_t value) {
+  uint32_t net_value = htonl(value);
+  if (os_mbuf_append(om, &net_value, sizeof(net_value)) != 0) {
     return BLE_ATT_ERR_UNLIKELY;
   }
 
   return 0;
 }
 
-static int read_size_t_le(struct os_mbuf *om, size_t *value_out) {
-  uint16_t value_len = OS_MBUF_PKTLEN(om);
-  if (value_len == 0 || value_len > sizeof(size_t)) {
+static int read_u32(struct os_mbuf *om, uint32_t *value_out) {
+  uint32_t net_value = 0;
+
+  if (OS_MBUF_PKTLEN(om) != sizeof(net_value)) {
     return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
   }
 
-  uint8_t value_buf[sizeof(size_t)] = {0};
-  if (ble_hs_mbuf_to_flat(om, value_buf, value_len, NULL) != 0) {
+  if (os_mbuf_copydata(om, 0, sizeof(net_value), &net_value) != 0) {
     return BLE_ATT_ERR_UNLIKELY;
   }
 
-  size_t value = 0;
-  for (size_t i = 0; i < value_len; ++i) {
-    value |= ((size_t)value_buf[i]) << (8 * i);
-  }
-
-  *value_out = value;
+  *value_out = ntohl(net_value);
   return 0;
 }
 
@@ -106,7 +97,7 @@ static int model_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
       }
 
       uint8_t value_buf[value_len];
-      if (ble_hs_mbuf_to_flat(ctxt->om, value_buf, value_len, NULL) != 0) {
+      if (os_mbuf_copydata(ctxt->om, 0, value_len, value_buf) != 0) {
         return BLE_ATT_ERR_UNLIKELY;
       }
 
@@ -126,17 +117,23 @@ static int model_size_dsc_access_cb(uint16_t conn_handle, uint16_t attr_handle,
   (void)arg;
 
   switch (ctxt->op) {
-    case BLE_GATT_ACCESS_OP_READ_DSC:
-      return append_size_t_le(ctxt->om, model_get_size());
+    case BLE_GATT_ACCESS_OP_READ_DSC: {
+      size_t size = model_get_size();
+      if (size > UINT32_MAX) {
+        return BLE_ATT_ERR_UNLIKELY;
+      }
+
+      return append_u32(ctxt->om, (uint32_t)size);
+    }
 
     case BLE_GATT_ACCESS_OP_WRITE_DSC: {
-      size_t size = 0;
-      int err = read_size_t_le(ctxt->om, &size);
+      uint32_t size_u32 = 0;
+      int err = read_u32(ctxt->om, &size_u32);
       if (err != 0) {
         return err;
       }
 
-      return model_err_to_att_err(model_set_size(size));
+      return model_err_to_att_err(model_set_size(size_u32));
     }
 
     default:
@@ -152,17 +149,23 @@ static int model_pos_dsc_access_cb(uint16_t conn_handle, uint16_t attr_handle,
   (void)arg;
 
   switch (ctxt->op) {
-    case BLE_GATT_ACCESS_OP_READ_DSC:
-      return append_size_t_le(ctxt->om, model_get_pos());
+    case BLE_GATT_ACCESS_OP_READ_DSC: {
+      size_t pos = model_get_pos();
+      if (pos > UINT32_MAX) {
+        return BLE_ATT_ERR_UNLIKELY;
+      }
+
+      return append_u32(ctxt->om, (uint32_t)pos);
+    }
 
     case BLE_GATT_ACCESS_OP_WRITE_DSC: {
-      size_t pos = 0;
-      int err = read_size_t_le(ctxt->om, &pos);
+      uint32_t pos_u32 = 0;
+      int err = read_u32(ctxt->om, &pos_u32);
       if (err != 0) {
         return err;
       }
 
-      return model_err_to_att_err(model_set_pos(pos));
+      return model_err_to_att_err(model_set_pos(pos_u32));
     }
 
     default:
