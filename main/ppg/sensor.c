@@ -3,11 +3,12 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include "common.h"
 #include "ppg/sensor.h"
 #include "ble/host.h"
 #include "ble/gatt.h"
 
-static const char tag[] = "nimble-example-ppg";
+static const char tag[] = APP_TAG "-ppg";
 static uint8_t heart_rate;
 
 uint8_t ppg_get_hr(void) { return heart_rate; }

@@ -1,17 +1,19 @@
+#include <stdint.h>
 #include <esp_log.h>
 #include <host/ble_hs.h>
 #include <host/ble_gatt.h>
+#include <host/ble_att.h>
+#include <host/ble_uuid.h>
 #include <lwip/def.h>
 #include <services/gatt/ble_svc_gatt.h>
 
+#include "common.h"
 #include "ble/gatt.h"
 #include "ble/host.h"
-#include "host/ble_att.h"
-#include "host/ble_uuid.h"
 #include "ml/model.h"
 #include "ppg/sensor.h"
 
-static const char tag[] = "nimble-example-gatt";
+static const char tag[] = APP_TAG "-gatt";
 
 static uint16_t hr_chr_handle;
 static uint16_t model_chr_handle;

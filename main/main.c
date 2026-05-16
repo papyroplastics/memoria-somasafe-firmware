@@ -3,10 +3,11 @@
 #include <nvs_flash.h>
 #include <esp_log.h>
 
+#include "common.h"
 #include "ble/host.h"
 #include "ppg/sensor.h"
 
-static const char tag[] = "nimble-example-main";
+static const char tag[] = APP_TAG "-main";
 
 void app_main(void) {
   int err = nvs_flash_init();

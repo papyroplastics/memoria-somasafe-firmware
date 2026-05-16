@@ -3,11 +3,12 @@
 #include <host/ble_hs.h>
 #include <nimble/nimble_port.h>
 
+#include "common.h"
 #include "ble/host.h"
 #include "ble/gatt.h"
 #include "ble/gap.h"
 
-static const char tag[] = "nimble-example-ble";
+static const char tag[] = APP_TAG "-ble";
 
 static const uint8_t nimble_port_max_retries = 10;
 

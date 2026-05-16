@@ -1,12 +1,12 @@
 #include <host/ble_gap.h>
 #include <services/gap/ble_svc_gap.h>
 
+#include "common.h"
 #include "ble/gap.h"
 #include "ble/gatt.h"
 #include "ble/host.h"
 
-
-static const char tag[] = "nimble-example-gap";
+static const char tag[] = APP_TAG "-gap";
 
 static const uint16_t adv_interval_ms = 500;
 static const uint16_t adv_interval_max_ms = 510;

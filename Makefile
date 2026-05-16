@@ -1,12 +1,15 @@
 
 SHELL := bash
 
-BIN := build/example.bin
-SRC := $(wildcard main/*.c)
-HDR := $(wildcard main/include/*.h)
+BIN := build/embed-somasafe.bin
+SRC := $(wildcard main/*.c) $(wildcard main/*/*.c)
+HDR := $(wildcard main/*.h) $(wildcard main/*/*.h)
 
-run: ${BIN}
+run:
 	idf.py flash monitor
+
+${BIN}: ${SRC} ${HDR}
+	idf.py build
 
 debug: ${BIN}
 	TERM=xterm-color \
@@ -17,9 +20,6 @@ gdb:
 
 qemu: ${BIN}
 	idf.py qemu --gdb monitor
-
-${BIN}: ${SRC} ${HDR}
-	idf.py build
 
 format:
 	clang-format -i ${SRC} ${HDR}
