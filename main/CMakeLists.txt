@@ -1,11 +1,19 @@
-file(GLOB_RECURSE srcs "srcs/*.c")
+file(GLOB_RECURSE ble_src "ble/*.c")
+file(GLOB_RECURSE ml_src  "ml/*.c")
+file(GLOB_RECURSE ppg_src "ppg/*.c")
 
 idf_component_register(
   SRCS 
     "main.c"
-    "${srcs}"
+    "${ble_src}"
+    "${ppg_src}"
+    "${ml_src}"
+
   PRIV_REQUIRES 
-    bt nvs_flash
+    bt 
+    nvs_flash
+    esp-tls
+
   INCLUDE_DIRS
-    "include"
+    "."
 )

@@ -1,10 +1,9 @@
-#include "common.h"
-#include "gap.h"
-#include "ble.h"
-#include "gatt.h"
-
 #include <host/ble_gap.h>
 #include <services/gap/ble_svc_gap.h>
+
+#include "ble/gap.h"
+#include "ble/gatt.h"
+#include "ble/host.h"
 
 
 static const char tag[] = "nimble-example-gap";
@@ -14,11 +13,19 @@ static const uint16_t adv_interval_max_ms = 510;
 
 static const uint8_t ble_addr_type = BLE_ADDR_RANDOM;
 
-static int gap_event_handler(struct ble_gap_event *event, void *arg) {
+static bool cur_conn_active = false;
+static uint16_t cur_conn_handle = 0;
+
+static int connection_event_handler(struct ble_gap_event *event, void *arg) {
   switch (event->type) {
   case BLE_GAP_EVENT_CONNECT:
     if (event->connect.status == 0) {
-      ESP_LOGI(tag, "connection established with client %d", event->connect.conn_handle);
+      ESP_LOGI(tag, "connection established with client %d",
+          event->connect.conn_handle);
+
+      cur_conn_active = true;
+      cur_conn_handle = event->connect.conn_handle;
+
     } else {
       ESP_LOGI(tag, "connection failed with status %d", event->connect.status);
     }
@@ -27,21 +34,27 @@ static int gap_event_handler(struct ble_gap_event *event, void *arg) {
   case BLE_GAP_EVENT_DISCONNECT:
     ESP_LOGI(tag, "connection finished with client %d and reason %d",
              event->disconnect.conn.conn_handle, event->disconnect.reason);
+
+    cur_conn_active = false;
+    cur_conn_handle = 0;
     start_adv();
     break;
 
   case BLE_GAP_EVENT_ADV_COMPLETE:
-    if (event->adv_complete.reason != 0) {
-      ESP_LOGI(tag, "advertising stopped with reason %d", event->adv_complete.reason);
-    } else {
-      ESP_LOGI(tag, "advertising finished due to connection");
-    }
+    ESP_LOGI(tag, "advertising stopped with reason %d %s",
+        event->adv_complete.reason, 
+        event->adv_complete.reason == 0 ? "(connection)" : ""
+    );
     break;
 
   case BLE_GAP_EVENT_SUBSCRIBE:
-      gatt_update_cccd_status(
-        event->subscribe.conn_handle, event->subscribe.attr_handle, 
-        event->subscribe.cur_notify, event->subscribe.cur_indicate);
+    ESP_LOGI(tag, 
+        "client %d updated subscription status on attrubute %d:"
+        "\n\tnotify: %d -> %d\n\tindicate: $d -> %d",
+        event->subscribe.conn_handle, event->subscribe.attr_handle,
+        event->subscribe.prev_notify, event->subscribe.cur_notify, 
+        event->subscribe.prev_indicate, event->subscribe.cur_indicate
+    );
     break;
 
   default:
@@ -145,7 +158,7 @@ int start_adv() {
   adv_params.itvl_max = BLE_GAP_ADV_ITVL_MS(adv_interval_max_ms);
 
   int err = ble_gap_adv_start(ble_addr_type, NULL, BLE_HS_FOREVER, &adv_params,
-                              gap_event_handler, NULL);
+                              connection_event_handler, NULL);
   if (err != 0) {
     ESP_LOGE(tag, "failed to start advertising with error code %d", err);
     return 1;
@@ -169,4 +182,3 @@ int stop_adv(void) {
   ESP_LOGI(tag, "advertising stopped by application");
   return 0;
 }
-

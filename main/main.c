@@ -1,6 +1,10 @@
-#include "common.h"
-#include "ble.h"
-#include "ppg.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <nvs_flash.h>
+#include <esp_log.h>
+
+#include "ble/host.h"
+#include "ppg/sensor.h"
 
 static const char tag[] = "nimble-example-main";
 
@@ -19,6 +23,6 @@ void app_main(void) {
   err = ble_init();
   if (err != 0) return;
 
-  xTaskCreate(ble_task, "NimBLE Host", CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE, NULL, 5, NULL);
+  xTaskCreate(ble_task, "NimBLE Host", CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE, NULL, configMAX_PRIORITIES, NULL);
   xTaskCreate(ppg_task, "PPG Sensor", 1024, NULL, 5, NULL);
 }

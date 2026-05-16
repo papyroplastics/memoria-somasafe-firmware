@@ -1,9 +1,11 @@
-#include "common.h"
-#include "ppg.h"
-#include "ble.h"
-#include "gatt.h"
-
+#include <esp_log.h>
 #include <esp_random.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#include "ppg/sensor.h"
+#include "ble/host.h"
+#include "ble/gatt.h"
 
 static const char tag[] = "nimble-example-ppg";
 static uint8_t heart_rate;
@@ -11,7 +13,7 @@ static uint8_t heart_rate;
 uint8_t ppg_get_hr(void) { return heart_rate; }
 
 static void signal_hr(void* arg) {
-  gatt_hr_attr_signal();
+  gatt_hr_chr_update();
 }
 
 void ppg_task(void *param) {
@@ -24,5 +26,6 @@ void ppg_task(void *param) {
     vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 
+  ESP_LOGE(tag, "PPG task exiting unexpectedly, restarting system");
   esp_restart();
 }
