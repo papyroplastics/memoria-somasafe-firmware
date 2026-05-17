@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stddef.h>
 #include <esp_log.h>
 #include <host/ble_hs.h>
 #include <host/ble_gatt.h>
@@ -48,22 +49,23 @@ static int hr_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
   }
 }
 
-static int model_err_to_att_err(enum model_load_err err) {
+static int model_err_to_att_err(enum ml_op_err err) {
   switch (err) {
-    case NONE:
+    case ML_ERR_NONE:
       return 0;
     case INSUFICCIENT_SPACE:
       return BLE_ATT_ERR_INSUFFICIENT_RES;
     case SHA_HW_FAILURE:
       return BLE_ATT_ERR_UNLIKELY;
+    case INVALID_MODEL:
+      return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
   }
 
   return BLE_ATT_ERR_UNLIKELY;
 }
 
 static int append_u32(struct os_mbuf *om, uint32_t value) {
-  uint32_t net_value = htonl(value);
-  if (os_mbuf_append(om, &net_value, sizeof(net_value)) != 0) {
+  if (os_mbuf_append(om, &value, sizeof(value)) != 0) {
     return BLE_ATT_ERR_UNLIKELY;
   }
 
@@ -71,17 +73,14 @@ static int append_u32(struct os_mbuf *om, uint32_t value) {
 }
 
 static int read_u32(struct os_mbuf *om, uint32_t *value_out) {
-  uint32_t net_value = 0;
-
-  if (OS_MBUF_PKTLEN(om) != sizeof(net_value)) {
+  if (OS_MBUF_PKTLEN(om) != sizeof(*value_out)) {
     return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
   }
 
-  if (os_mbuf_copydata(om, 0, sizeof(net_value), &net_value) != 0) {
+  if (os_mbuf_copydata(om, 0, sizeof(*value_out), value_out) != 0) {
     return BLE_ATT_ERR_UNLIKELY;
   }
 
-  *value_out = ntohl(net_value);
   return 0;
 }
 
@@ -103,7 +102,7 @@ static int model_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
         return BLE_ATT_ERR_UNLIKELY;
       }
 
-      return model_err_to_att_err(model_write(value_buf, value_len));
+      return model_err_to_att_err(model_write(value_buf, (size_t)value_len));
     }
 
     default:
@@ -135,7 +134,7 @@ static int model_size_dsc_access_cb(uint16_t conn_handle, uint16_t attr_handle,
         return err;
       }
 
-      return model_err_to_att_err(model_set_size(size_u32));
+      return model_err_to_att_err(model_set_size((size_t)size_u32));
     }
 
     default:
@@ -167,7 +166,7 @@ static int model_pos_dsc_access_cb(uint16_t conn_handle, uint16_t attr_handle,
         return err;
       }
 
-      return model_err_to_att_err(model_set_pos(pos_u32));
+      return model_err_to_att_err(model_set_pos((size_t)pos_u32));
     }
 
     default:
@@ -184,13 +183,13 @@ static int model_sha_dsc_access_cb(uint16_t conn_handle, uint16_t attr_handle,
 
   switch (ctxt->op) {
     case BLE_GATT_ACCESS_OP_READ_DSC: {
-      uint8_t checksum[32];
-      int err = model_err_to_att_err(model_get_checksum(checksum));
+      const uint8_t *checksum;
+      int err = model_err_to_att_err(model_get_checksum(&checksum));
       if (err != 0) {
         return err;
       }
 
-      if (os_mbuf_append(ctxt->om, checksum, sizeof(checksum)) != 0) {
+      if (os_mbuf_append(ctxt->om, checksum, MODEL_CHECKSUM_LEN) != 0) {
         return BLE_ATT_ERR_UNLIKELY;
       }
 

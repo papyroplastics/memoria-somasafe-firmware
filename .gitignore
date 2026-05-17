@@ -2,4 +2,6 @@ build/
 sdkconfig
 sdkconfig.old
 managed_components/
+.venv/
 dependencies.lock
+uv.lock

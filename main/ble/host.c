@@ -12,8 +12,6 @@ static const char tag[] = APP_TAG "-ble";
 
 static const uint8_t nimble_port_max_retries = 10;
 
-const char device_name[] = "Heart rate monitor";
-const char device_name_short[] = "HRM";
 const uint16_t device_appearance = 0x0340;  // heart
 
 const ble_uuid16_t hr_svc_uuid = BLE_UUID16_INIT(0x180D);

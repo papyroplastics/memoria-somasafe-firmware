@@ -24,6 +24,6 @@ void app_main(void) {
   err = ble_init();
   if (err != 0) return;
 
-  xTaskCreate(ble_task, "NimBLE Host", CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE, NULL, configMAX_PRIORITIES, NULL);
+  xTaskCreate(ble_task, "NimBLE Host", CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE, NULL, configMAX_PRIORITIES-1, NULL);
   xTaskCreate(ppg_task, "PPG Sensor", 1024, NULL, 5, NULL);
 }

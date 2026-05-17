@@ -1,0 +1,25 @@
+[project]
+name = "embed-somasafe"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "bleak>=3.0.2",
+]
+
+[dependency-groups]
+dev = [
+  "ipython",
+  "pyrefly",
+]
+
+[tool.pyrefly]
+python-platform = "linux"
+project-includes = [
+    "tests/*.py",
+]
+
+[tool.pyrefly.errors]
+implicit-import = false
+

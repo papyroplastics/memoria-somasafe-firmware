@@ -49,8 +49,8 @@ static int connection_event_handler(struct ble_gap_event *event, void *arg) {
 
   case BLE_GAP_EVENT_SUBSCRIBE:
     ESP_LOGI(tag, 
-        "client %d updated subscription status on attrubute %d:"
-        "\n\tnotify: %d -> %d\n\tindicate: $d -> %d",
+        "client %d updated subscription status on attrubute %d:\n"
+        "\tnotify: %d -> %d\n\tindicate: %d -> %d",
         event->subscribe.conn_handle, event->subscribe.attr_handle,
         event->subscribe.prev_notify, event->subscribe.cur_notify, 
         event->subscribe.prev_indicate, event->subscribe.cur_indicate
@@ -67,7 +67,7 @@ static int connection_event_handler(struct ble_gap_event *event, void *arg) {
 int gap_init(void) {
   ble_svc_gap_init();
 
-  return ble_svc_gap_device_name_set(device_name) != 0
+  return ble_svc_gap_device_name_set(DEV_NAME) != 0
     || ble_svc_gap_device_appearance_set(device_appearance) != 0;
 }
 
@@ -103,8 +103,8 @@ int prepare_adv(void) {
     .num_uuids16 = sizeof(adv_svc_uuids) / sizeof(adv_svc_uuids[0]),
     .uuids16_is_complete = 0,
 
-    .name = (const uint8_t *)device_name_short,
-    .name_len = strlen(device_name_short),
+    .name = (const uint8_t *)DEV_NAME_SHORT,
+    .name_len = strlen(DEV_NAME_SHORT),
     .name_is_complete = 0,
 
     .tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO,
@@ -128,8 +128,8 @@ int prepare_adv(void) {
 
   // Set scan response data
   const struct ble_hs_adv_fields rsp_fields = {
-    .name = (const uint8_t *)device_name,
-    .name_len = strlen(device_name),
+    .name = (const uint8_t *)DEV_NAME,
+    .name_len = strlen(DEV_NAME),
     .name_is_complete = 1,
 
     .device_addr = ble_addr.val,
