@@ -12,6 +12,7 @@ idf_component_register(
   PRIV_REQUIRES 
     bt 
     nvs_flash
+    mbedtls
     esp-tls
 
   INCLUDE_DIRS

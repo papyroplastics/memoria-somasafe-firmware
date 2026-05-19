@@ -8,6 +8,8 @@
 
 static const char tag[] = APP_TAG "-gap";
 
+const uint16_t device_appearance = 0x0340;  // heart
+
 static const uint16_t adv_interval_ms = 500;
 static const uint16_t adv_interval_max_ms = 510;
 
