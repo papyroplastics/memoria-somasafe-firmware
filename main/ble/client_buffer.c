@@ -6,8 +6,9 @@
 #include <host/ble_gatt.h>
 #include <mbedtls/sha256.h>
 
-#include "ble/client_buffer.h"
 #include "common.h"
+#include "ble/client_buffer.h"
+#include "ble/buffer_defs.h"
 
 static const char tag[] = APP_TAG "-client-buffer";
 

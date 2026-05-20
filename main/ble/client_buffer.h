@@ -2,7 +2,6 @@
 #define BLE_CLIENT_BUFFER_H
 
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 
 #include <host/ble_att.h>
@@ -44,40 +43,47 @@ int ble_client_buffer_pos_dsc_access_cb(uint16_t conn_handle, uint16_t attr_hand
 int ble_client_buffer_sha_dsc_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     struct ble_gatt_access_ctxt *ctxt, void *arg);
 
-extern struct ble_gatt_buffer_service *gatt_buffer_services[];
-extern const size_t gatt_buffer_services_len;
-
 #define BLE_GATT_BUFFER_SERVICE_DEF(service) \
   { \
     .type = BLE_GATT_SVC_TYPE_PRIMARY, \
     .uuid = &(service).svc_uuid.u, \
+    .includes = NULL, \
     .characteristics = (struct ble_gatt_chr_def[]) { \
       { \
         .uuid = &(service).chr_uuid.u, \
         .access_cb = ble_client_buffer_chr_access_cb, \
+        .arg = NULL, \
         .descriptors = (struct ble_gatt_dsc_def[]) { \
           { \
             .uuid = &(service).size_dsc_uuid.u, \
             .att_flags = BLE_ATT_F_READ | BLE_ATT_F_WRITE, \
-            .access_cb = ble_client_buffer_size_dsc_access_cb \
+            .min_key_size = 0, \
+            .access_cb = ble_client_buffer_size_dsc_access_cb, \
+            .arg = NULL, \
           }, \
           { \
             .uuid = &(service).pos_dsc_uuid.u, \
             .att_flags = BLE_ATT_F_READ | BLE_ATT_F_WRITE, \
-            .access_cb = ble_client_buffer_pos_dsc_access_cb \
+            .min_key_size = 0, \
+            .access_cb = ble_client_buffer_pos_dsc_access_cb, \
+            .arg = NULL, \
           }, \
           { \
             .uuid = &(service).sha_dsc_uuid.u, \
             .att_flags = BLE_ATT_F_READ, \
-            .access_cb = ble_client_buffer_sha_dsc_access_cb \
+            .min_key_size = 0, \
+            .access_cb = ble_client_buffer_sha_dsc_access_cb, \
+            .arg = NULL, \
           }, \
-          {0} \
+          {0}, \
         }, \
         .flags = BLE_GATT_CHR_F_WRITE, \
-        .val_handle = &(service).chr_handle \
+        .min_key_size = 0, \
+        .val_handle = &(service).chr_handle, \
+        .cpfd = NULL, \
       }, \
-      {0} \
-    } \
+      {0}, \
+    }, \
   }
 
 #endif  // BLE_CLIENT_BUFFER_H
