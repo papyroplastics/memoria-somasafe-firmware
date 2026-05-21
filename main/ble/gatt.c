@@ -69,7 +69,15 @@ static struct ble_gatt_svc_def gatt_svcs[] = {
       {0}
     }
   },
-  BLE_GATT_BUFFER_SERVICE_DEF(model_buffer_service),
+  {
+    .type = BLE_GATT_SVC_TYPE_PRIMARY,
+    .uuid = &model_buffer_service.svc_uuid.u,
+    .includes = NULL,
+    .characteristics = (struct ble_gatt_chr_def[]) {
+      BLE_GATT_BUFFER_CHR_DEF(model_buffer_service),
+      {0},
+    }
+  },
   {0},
 };
 // clang-format on

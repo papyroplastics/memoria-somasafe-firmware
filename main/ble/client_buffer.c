@@ -243,7 +243,6 @@ int ble_client_buffer_sha_dsc_access_cb(uint16_t conn_handle, uint16_t attr_hand
 
       if (memcmp(checksum, client_checksum, SHA256_DIGEST_LENGTH) == 0) {
         ESP_LOGI(tag, "buffer checksum verified: %s", get_sha_str(client_checksum).hex);
-        // TODO: signal that the buffer usable
 
       } else {
         ESP_LOGI(tag, "checksum verification failed:\n  client: %s\n  server: %s", 
