@@ -39,7 +39,7 @@ static int connection_event_handler(struct ble_gap_event *event, void *arg) {
 
     cur_conn_active = false;
     cur_conn_handle = 0;
-    start_adv();
+    ble_gap_advert_start();
     break;
 
   case BLE_GAP_EVENT_ADV_COMPLETE:
@@ -66,7 +66,7 @@ static int connection_event_handler(struct ble_gap_event *event, void *arg) {
   return 0;
 }
 
-int gap_init(void) {
+int ble_gap_task_prepare(void) {
   ble_svc_gap_init();
 
   return ble_svc_gap_device_name_set(DEV_NAME) != 0
@@ -74,7 +74,7 @@ int gap_init(void) {
 }
 
 
-int prepare_adv(void) {
+int ble_gap_advert_config(void) {
   // Get address
   ble_addr_t ble_addr = {.type = ble_addr_type, .val = {0}};
 
@@ -147,7 +147,7 @@ int prepare_adv(void) {
   return 0;
 }
 
-int start_adv() {
+int ble_gap_advert_start() {
   if (ble_gap_adv_active() != 0) {
     return 0;
   }
@@ -170,7 +170,7 @@ int start_adv() {
   return 0;
 }
 
-int stop_adv(void) {
+int ble_gap_advert_stop(void) {
   if (ble_gap_adv_active() == 0) {
     return 0;
   }

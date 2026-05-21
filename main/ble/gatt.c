@@ -74,23 +74,23 @@ static struct ble_gatt_svc_def gatt_svcs[] = {
 };
 // clang-format on
 
-void gatt_att_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg) {
+void ble_gatt_att_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg) {
   (void)arg;
 
   if (ctxt->op == BLE_GATT_REGISTER_OP_DSC) {
-    register_client_buffer(
+    ble_buffer_defs_register(
       ctxt->dsc.svc_def->uuid, ctxt->dsc.chr_def->uuid,
       ctxt->dsc.dsc_def->uuid, ctxt->dsc.handle
     );
   }
 }
 
-int gatt_init(void) {
+int ble_gatt_init(void) {
   ble_svc_gatt_init();
 
   return ble_gatts_count_cfg(gatt_svcs) || ble_gatts_add_svcs(gatt_svcs);
 }
 
-void gatt_hr_chr_update(void) {
+void ble_gatt_hr_chr_update(void) {
   ble_gatts_chr_updated(hr_chr_handle);
 }

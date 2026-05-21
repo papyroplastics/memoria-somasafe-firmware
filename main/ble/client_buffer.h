@@ -8,14 +8,14 @@
 #include <host/ble_gatt.h>
 #include <host/ble_uuid.h>
 
-#define BLE_CLIENT_BUFFER_CHECKSUM_LEN 32
+#define SHA256_DIGEST_LENGTH 32
 
 struct ble_client_buffer {
   uint8_t *data;
   uint32_t pos;
   uint32_t size;
   bool checksum_dirty;
-  uint8_t checksum[BLE_CLIENT_BUFFER_CHECKSUM_LEN];
+  uint8_t checksum[SHA256_DIGEST_LENGTH];
 };
 
 #define BLE_CLIENT_BUFFER_INIT \
@@ -52,28 +52,28 @@ int ble_client_buffer_sha_dsc_access_cb(uint16_t conn_handle, uint16_t attr_hand
       { \
         .uuid = &(service).chr_uuid.u, \
         .access_cb = ble_client_buffer_chr_access_cb, \
-        .arg = NULL, \
+        .arg = &(service), \
         .descriptors = (struct ble_gatt_dsc_def[]) { \
           { \
             .uuid = &(service).size_dsc_uuid.u, \
             .att_flags = BLE_ATT_F_READ | BLE_ATT_F_WRITE, \
             .min_key_size = 0, \
             .access_cb = ble_client_buffer_size_dsc_access_cb, \
-            .arg = NULL, \
+            .arg = &(service), \
           }, \
           { \
             .uuid = &(service).pos_dsc_uuid.u, \
             .att_flags = BLE_ATT_F_READ | BLE_ATT_F_WRITE, \
             .min_key_size = 0, \
             .access_cb = ble_client_buffer_pos_dsc_access_cb, \
-            .arg = NULL, \
+            .arg = &(service), \
           }, \
           { \
             .uuid = &(service).sha_dsc_uuid.u, \
-            .att_flags = BLE_ATT_F_READ, \
+            .att_flags = BLE_ATT_F_READ | BLE_ATT_F_WRITE, \
             .min_key_size = 0, \
             .access_cb = ble_client_buffer_sha_dsc_access_cb, \
-            .arg = NULL, \
+            .arg = &(service), \
           }, \
           {0}, \
         }, \

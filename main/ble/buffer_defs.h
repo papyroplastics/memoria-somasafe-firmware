@@ -13,7 +13,7 @@ extern struct ble_gatt_buffer_service model_buffer_service;
 extern struct ble_gatt_buffer_service *gatt_buffer_services[];
 extern const size_t gatt_buffer_services_len;
 
-bool register_client_buffer(
+bool ble_buffer_defs_register(
     const ble_uuid_t *svc_uuid, const ble_uuid_t *chr_uuid,
     const ble_uuid_t *dsc_uuid, uint16_t dsc_handle
 );

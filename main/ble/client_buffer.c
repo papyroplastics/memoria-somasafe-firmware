@@ -1,4 +1,7 @@
+#include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
 
 #include <esp_log.h>
 #include <hal/sha_types.h>
@@ -33,9 +36,6 @@ static int read_u32(struct os_mbuf *om, uint32_t *value_out) {
 }
 
 static int ble_client_buffer_write(struct ble_client_buffer *buffer, struct os_mbuf *om) {
-  if (buffer == NULL || om == NULL) {
-    return BLE_ATT_ERR_UNLIKELY;
-  }
 
   uint16_t value_len = OS_MBUF_PKTLEN(om);
   if (value_len == 0) {
@@ -43,6 +43,8 @@ static int ble_client_buffer_write(struct ble_client_buffer *buffer, struct os_m
   }
 
   if (buffer->data == NULL || buffer->pos + value_len > buffer->size) {
+    ESP_LOGE(tag, "invalid write, pos: %d, len: %d, size: %d", 
+        buffer->pos, value_len, buffer->size);
     return BLE_ATT_ERR_INSUFFICIENT_RES;
   }
 
@@ -56,24 +58,21 @@ static int ble_client_buffer_write(struct ble_client_buffer *buffer, struct os_m
 }
 
 static int ble_client_buffer_set_size(struct ble_client_buffer *buffer, uint32_t size) {
-  if (buffer == NULL) {
-    return BLE_ATT_ERR_UNLIKELY;
-  }
+  buffer->pos = 0;
 
   if (size == buffer->size) {
     return 0;
   }
-
-  buffer->checksum_dirty = true;
 
   if (buffer->data != NULL) {
     free(buffer->data);
     buffer->data = NULL;
   }
 
+  buffer->checksum_dirty = true;
+
   if (size == 0) {
     buffer->size = 0;
-    buffer->pos = 0;
     return 0;
   }
 
@@ -90,10 +89,6 @@ static int ble_client_buffer_set_size(struct ble_client_buffer *buffer, uint32_t
 }
 
 static int ble_client_buffer_set_pos(struct ble_client_buffer *buffer, uint32_t pos) {
-  if (buffer == NULL) {
-    return BLE_ATT_ERR_UNLIKELY;
-  }
-
   if (pos > buffer->size) {
     buffer->pos = buffer->size;
   } else {
@@ -103,11 +98,20 @@ static int ble_client_buffer_set_pos(struct ble_client_buffer *buffer, uint32_t 
   return 0;
 }
 
+struct sha_str { char hex[SHA256_DIGEST_LENGTH * 2 + 1]; } get_sha_str(
+  const uint8_t checksum[SHA256_DIGEST_LENGTH]) {
+
+  struct sha_str sha_str_i;
+  for (unsigned int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+    sprintf(sha_str_i.hex + i * 2, "%02x", checksum[i]);
+  }
+  sha_str_i.hex[SHA256_DIGEST_LENGTH * 2] = '\0';
+
+  return sha_str_i;
+}
+
 static int ble_client_buffer_get_checksum(struct ble_client_buffer *buffer,
     const uint8_t **out_ptr) {
-  if (buffer == NULL || out_ptr == NULL) {
-    return BLE_ATT_ERR_UNLIKELY;
-  }
 
   if (buffer->checksum_dirty) {
     int err = 0;
@@ -132,15 +136,12 @@ static int ble_client_buffer_get_checksum(struct ble_client_buffer *buffer,
 
   end:
     mbedtls_sha256_free(&sha_ctx);
-
-    if (err) {
+    if (err != 0) {
       return BLE_ATT_ERR_UNLIKELY;
     }
 
     buffer->checksum_dirty = false;
-    ESP_LOGI(tag, "computed SHA-256 of buffer %hhx%hhx%hhx%hhx%hhx%hhx%hhx%hhx",
-        buffer->checksum[0], buffer->checksum[1], buffer->checksum[2], buffer->checksum[3],
-        buffer->checksum[4], buffer->checksum[5], buffer->checksum[6], buffer->checksum[7]);
+    ESP_LOGI(tag, "computed SHA-256 of buffer: %s", get_sha_str(buffer->checksum).hex);
   }
 
   *out_ptr = buffer->checksum;
@@ -152,18 +153,7 @@ int ble_client_buffer_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
   (void)conn_handle;
   (void)arg;
 
-  struct ble_gatt_buffer_service *service = NULL;
-  for (size_t i = 0; i < gatt_buffer_services_len; i++) {
-    if (attr_handle == gatt_buffer_services[i]->chr_handle) {
-      service = gatt_buffer_services[i];
-      break;
-    }
-  }
-
-  if (service == NULL) {
-    ESP_LOGE(tag, "unknown buffer chr handle %d", attr_handle);
-    return BLE_ATT_ERR_UNLIKELY;
-  }
+  struct ble_gatt_buffer_service *service = arg;
 
   switch (ctxt->op) {
     case BLE_GATT_ACCESS_OP_WRITE_CHR:
@@ -180,18 +170,7 @@ int ble_client_buffer_size_dsc_access_cb(uint16_t conn_handle, uint16_t attr_han
   (void)conn_handle;
   (void)arg;
 
-  struct ble_gatt_buffer_service *service = NULL;
-  for (size_t i = 0; i < gatt_buffer_services_len; i++) {
-    if (attr_handle == gatt_buffer_services[i]->size_dsc_handle) {
-      service = gatt_buffer_services[i];
-      break;
-    }
-  }
-
-  if (service == NULL) {
-    ESP_LOGE(tag, "unknown buffer size dsc handle %d", attr_handle);
-    return BLE_ATT_ERR_UNLIKELY;
-  }
+  struct ble_gatt_buffer_service *service = arg;
 
   switch (ctxt->op) {
     case BLE_GATT_ACCESS_OP_READ_DSC:
@@ -215,18 +194,7 @@ int ble_client_buffer_pos_dsc_access_cb(uint16_t conn_handle, uint16_t attr_hand
   (void)conn_handle;
   (void)arg;
 
-  struct ble_gatt_buffer_service *service = NULL;
-  for (size_t i = 0; i < gatt_buffer_services_len; i++) {
-    if (attr_handle == gatt_buffer_services[i]->pos_dsc_handle) {
-      service = gatt_buffer_services[i];
-      break;
-    }
-  }
-
-  if (service == NULL) {
-    ESP_LOGE(tag, "unknown buffer pos dsc handle %d", attr_handle);
-    return BLE_ATT_ERR_UNLIKELY;
-  }
+  struct ble_gatt_buffer_service *service = arg;
 
   switch (ctxt->op) {
     case BLE_GATT_ACCESS_OP_READ_DSC:
@@ -248,25 +216,9 @@ int ble_client_buffer_pos_dsc_access_cb(uint16_t conn_handle, uint16_t attr_hand
 int ble_client_buffer_sha_dsc_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     struct ble_gatt_access_ctxt *ctxt, void *arg) {
   (void)conn_handle;
-  (void)arg;
+  (void)attr_handle;
 
-  struct ble_gatt_buffer_service *service = NULL;
-  for (size_t i = 0; i < gatt_buffer_services_len; i++) {
-    if (attr_handle == gatt_buffer_services[i]->sha_dsc_handle) {
-      service = gatt_buffer_services[i];
-      break;
-    }
-  }
-
-  if (service == NULL) {
-    ESP_LOGE(tag, "unknown buffer sha dsc handle %d", attr_handle);
-    return BLE_ATT_ERR_UNLIKELY;
-  }
-
-  if (ctxt->op != BLE_GATT_ACCESS_OP_READ_DSC) {
-    ESP_LOGE(tag, "illegal operation to buffer sha dsc with code: %d", ctxt->op);
-    return BLE_ATT_ERR_UNLIKELY;
-  }
+  struct ble_gatt_buffer_service *service = arg;
 
   const uint8_t *checksum = NULL;
   int err = ble_client_buffer_get_checksum(&service->buffer, &checksum);
@@ -274,8 +226,36 @@ int ble_client_buffer_sha_dsc_access_cb(uint16_t conn_handle, uint16_t attr_hand
     return err;
   }
 
-  if (os_mbuf_append(ctxt->om, checksum, BLE_CLIENT_BUFFER_CHECKSUM_LEN) != 0) {
-    return BLE_ATT_ERR_UNLIKELY;
+  switch (ctxt->op) {
+    case BLE_GATT_ACCESS_OP_READ_DSC: 
+      if (os_mbuf_append(ctxt->om, checksum, SHA256_DIGEST_LENGTH) != 0) {
+        return BLE_ATT_ERR_UNLIKELY;
+      }
+
+      break;
+
+    case BLE_GATT_ACCESS_OP_WRITE_DSC: {
+      uint8_t client_checksum[SHA256_DIGEST_LENGTH];
+
+      if (os_mbuf_copydata(ctxt->om, 0, SHA256_DIGEST_LENGTH, client_checksum) != 0) {
+        return BLE_ATT_ERR_UNLIKELY;
+      }
+
+      if (memcmp(checksum, client_checksum, SHA256_DIGEST_LENGTH) == 0) {
+        ESP_LOGI(tag, "buffer checksum verified: %s", get_sha_str(client_checksum).hex);
+        // TODO: signal that the buffer usable
+
+      } else {
+        ESP_LOGI(tag, "checksum verification failed:\n  client: %s\n  server: %s", 
+            get_sha_str(checksum).hex, get_sha_str(client_checksum).hex);
+      }
+
+      break;
+    }
+
+    default:
+      ESP_LOGE(tag, "illegal operation to buffer sha dsc with code: %d", ctxt->op);
+      return BLE_ATT_ERR_UNLIKELY;
   }
 
   return 0;

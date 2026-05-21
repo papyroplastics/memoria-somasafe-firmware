@@ -94,11 +94,21 @@ async def main():
             pos += len(buf)
 
         # Check model SHA-256
-        model_hash = hashlib.sha256(model_data)
-        print(f"Data hash: {model_hash.hexdigest()}")
+        client_hash = hashlib.sha256(model_data)
+        server_hash = await client.read_gatt_descriptor(model_sha_dsc)
 
-        model_hash_od = await client.read_gatt_descriptor(model_sha_dsc)
-        print(f"Retrieved hash: {model_hash_od.hex()}")
+        client_hash_hex = client_hash.hexdigest()
+        server_hash_hex = server_hash.hex()
 
+        if (client_hash_hex == server_hash_hex):
+            print(f"Hashes match: {client_hash_hex}")
+
+        else:
+            print("Hashes don't match:\n"
+                 f"  client: {client_hash_hex}\n"
+                 f"  server: {server_hash_hex}")
+
+
+        await client.write_gatt_descriptor(model_sha_dsc, client_hash.digest())
 
 asyncio.run(main())

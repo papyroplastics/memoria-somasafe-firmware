@@ -8,10 +8,10 @@
 extern const ble_uuid16_t hr_svc_uuid;
 extern struct ble_gatt_buffer_service model_buffer_service;
 
-int gatt_init(void);
+int ble_gatt_init(void);
 
-void gatt_hr_chr_update(void);
+void ble_gatt_hr_chr_update(void);
 
-void gatt_att_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg);
+void ble_gatt_att_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg);
 
 #endif  // BLE_GATT_H

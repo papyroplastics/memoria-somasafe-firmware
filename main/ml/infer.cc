@@ -22,7 +22,10 @@ enum ml_infer_err {
   MALFORMED_MODEL,
   UNSUPPORTED_OPPERATION,
   TENSOR_ALLOC_ERROR,
+  INFERENCE_ERROR,
 };
+
+bool buf_ready = false;
 
 enum ml_infer_err run_inference() {
   const tflite::Model* model = tflite::GetModel(model_buffer.data);
@@ -48,16 +51,31 @@ enum ml_infer_err run_inference() {
   TfLiteTensor* input = interpreter.input(0);
   TfLiteTensor* output = interpreter.output(0);
 
+  int batch_size = input->dims->data[0];
   const float data_max = 2 * M_PI;
-  const size_t data_len = 200;
-  const float data_step = data_max / data_len;
+  const float data_step = data_max / batch_size;
 
-  int8_t q_data[data_len];
-
-  for (size_t i = 0; i < data_len; i++) {
+  for (int i = 0; i < batch_size; i++) {
     float x = i * data_step;
-    q_data[i] = x / input->params.scale + input->params.zero_point;;
+    input->data.int8[i] = x / input->params.scale + input->params.zero_point;;
+  }
+
+  TfLiteStatus invoke_status = interpreter.Invoke();
+  if (invoke_status != kTfLiteOk) {
+    ESP_LOGE(tag, "model interpreter invocation failed");
+    return INFERENCE_ERROR;
+  }
+
+
+  for (int i = 0; i < batch_size; i++) {
+    float x = i * data_step;
+    int8_t y_quantized = output->data.int8[0];
+    float y = (y_quantized - output->params.zero_point) * output->params.scale;
+
+    printf("%f,%f", x, y);
   }
 
   return ML_INFER_ERR_NONE;
 }
+
+
