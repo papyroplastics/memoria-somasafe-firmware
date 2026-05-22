@@ -52,6 +52,33 @@ static int read_u8(struct os_mbuf *om, uint8_t *value_out) {
   return 0;
 }
 
+static int ble_client_buffer_read(struct ble_client_buffer *buffer,
+    uint16_t conn_handle, struct os_mbuf *om) {
+  if (buffer->data == NULL && buffer->size != 0) {
+    return BLE_ATT_ERR_UNLIKELY;
+  }
+
+  uint32_t remaining = buffer->size - buffer->pos;
+  if (remaining == 0) {
+    return 0;
+  }
+
+  uint16_t mtu = ble_att_mtu(conn_handle);
+  if (mtu < 23) {
+    return BLE_ATT_ERR_UNLIKELY;
+  }
+
+  uint32_t read_len = remaining > mtu - 1 ? mtu - 1 : remaining;
+
+  if (os_mbuf_append(om, buffer->data + buffer->pos, read_len) != 0) {
+    return BLE_ATT_ERR_UNLIKELY;
+  }
+
+  buffer->pos += read_len;
+
+  return 0;
+}
+
 static void buffer_state_reset_work(void *arg) {
   struct ble_gatt_buffer_service *service = arg;
   struct ble_client_buffer *buffer = &service->buffer;
@@ -248,6 +275,8 @@ int ble_client_buffer_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
   struct ble_gatt_buffer_service *service = arg;
 
   switch (ctxt->op) {
+    case BLE_GATT_ACCESS_OP_READ_CHR:
+      return ble_client_buffer_read(&service->buffer, conn_handle, ctxt->om);
     case BLE_GATT_ACCESS_OP_WRITE_CHR:
       return ble_client_buffer_write(&service->buffer, ctxt->om);
 

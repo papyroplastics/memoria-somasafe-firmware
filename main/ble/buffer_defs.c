@@ -20,7 +20,7 @@ const ble_uuid128_t ble_buffer_pos_dsc_uuid = BLE_UUID128_INIT(
     0xaf, 0x57, 0xbe, 0xb6, 0x9c, 0x5c, 0x56, 0xf5,
 );
 
-struct ble_gatt_buffer_service model_buffer_service = {
+struct ble_gatt_buffer_service ml_buffer_service = {
   .buffer = BLE_CLIENT_BUFFER_INIT,
   .svc_uuid = BLE_UUID128_INIT(
       0x38, 0x27, 0x43, 0xd4, 0xda, 0xb7, 0x43, 0xfe,
@@ -29,7 +29,7 @@ struct ble_gatt_buffer_service model_buffer_service = {
 };
 
 struct ble_gatt_buffer_service *gatt_buffer_services[] = {
-  &model_buffer_service,
+  &ml_buffer_service,
 };
 
 const size_t gatt_buffer_services_len =

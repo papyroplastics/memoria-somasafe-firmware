@@ -6,7 +6,7 @@
 #include <host/ble_uuid.h>
 
 extern const ble_uuid16_t hr_svc_uuid;
-extern struct ble_gatt_buffer_service model_buffer_service;
+extern struct ble_gatt_buffer_service ml_buffer_service;
 
 int ble_gatt_init(void);
 

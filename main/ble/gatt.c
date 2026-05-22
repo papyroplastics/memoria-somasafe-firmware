@@ -11,6 +11,7 @@
 #include "ble/gatt.h"
 #include "ble/buffer_defs.h"
 #include "ble/client_buffer.h"
+#include "ml/infer.h"
 #include "ppg/sensor.h"
 
 static const char tag[] = APP_TAG "-gatt";
@@ -30,10 +31,6 @@ static int hr_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
           0, // flags
           ppg_get_hr()
         };
-
-        ESP_LOGI(tag, "%s %d read value %d from HR characteristic",
-            conn_handle == BLE_HS_CONN_HANDLE_NONE ? "nimble stack" : "client",
-            conn_handle == BLE_HS_CONN_HANDLE_NONE ? conn_handle : 0, hr_chr_value[1]);
 
         int err = os_mbuf_append(ctxt->om, hr_chr_value, sizeof(hr_chr_value));
         if (err != 0) {
@@ -71,10 +68,30 @@ static struct ble_gatt_svc_def gatt_svcs[] = {
   },
   {
     .type = BLE_GATT_SVC_TYPE_PRIMARY,
-    .uuid = &model_buffer_service.svc_uuid.u,
+    .uuid = &ml_buffer_service.svc_uuid.u,
     .includes = NULL,
     .characteristics = (struct ble_gatt_chr_def[]) {
-      BLE_GATT_BUFFER_CHR_DEF(model_buffer_service),
+      {
+        .uuid = &ml_results_chr_uuid.u,
+        .access_cb = ml_results_chr_access_cb,
+        .arg = NULL,
+        .descriptors = NULL,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .min_key_size = 0,
+        .val_handle = &ml_results_chr_handle,
+        .cpfd = 0,
+      },
+      {
+        .uuid = &ml_errors_chr_uuid.u,
+        .access_cb = ml_errors_chr_access_cb,
+        .arg = NULL,
+        .descriptors = NULL,
+        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .min_key_size = 0,
+        .val_handle = &ml_errors_chr_handle,
+        .cpfd = 0,
+      },
+      BLE_GATT_BUFFER_CHRS_DEF(ml_buffer_service),
       {0},
     }
   },

@@ -9,6 +9,10 @@
 #include <host/ble_gatt.h>
 #include <host/ble_uuid.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern const ble_uuid128_t ble_buffer_chr_uuid;
 extern const ble_uuid128_t ble_buffer_state_chr_uuid;
 extern const ble_uuid128_t ble_buffer_size_dsc_uuid;
@@ -34,7 +38,7 @@ struct ble_client_buffer {
     .size = 0, \
     .mutex = PTHREAD_MUTEX_INITIALIZER, \
     .cond = PTHREAD_COND_INITIALIZER, \
-    .dirty = true, \
+    .dirty = false, \
     .ready = false, \
   }
 
@@ -66,7 +70,7 @@ bool ble_client_buffer_lock(struct ble_client_buffer *buffer);
 bool ble_client_buffer_try_lock(struct ble_client_buffer *buffer, bool *dirty_out);
 void ble_client_buffer_unlock(struct ble_client_buffer *buffer);
 
-#define BLE_GATT_BUFFER_CHR_DEF(service) \
+#define BLE_GATT_BUFFER_CHRS_DEF(service) \
   { \
     .uuid = &ble_buffer_chr_uuid.u, \
     .access_cb = ble_client_buffer_chr_access_cb, \
@@ -88,7 +92,7 @@ void ble_client_buffer_unlock(struct ble_client_buffer *buffer);
       }, \
       {0}, \
     }, \
-    .flags = BLE_GATT_CHR_F_WRITE, \
+    .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE, \
     .min_key_size = 0, \
     .val_handle = &(service).chr_handle, \
     .cpfd = NULL, \
@@ -103,5 +107,9 @@ void ble_client_buffer_unlock(struct ble_client_buffer *buffer);
     .val_handle = &(service).state_chr_handle, \
     .cpfd = NULL, \
   }
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif
 
 #endif  // BLE_CLIENT_BUFFER_H

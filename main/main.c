@@ -5,6 +5,7 @@
 
 #include "common.h"
 #include "ble/host.h"
+#include "ml/infer.h"
 #include "ppg/sensor.h"
 #include "utils/worker.h"
 
@@ -31,4 +32,5 @@ void app_main(void) {
   xTaskCreate(ble_task, "NimBLE Host", CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE, NULL, configMAX_PRIORITIES-1, NULL);
   xTaskCreate(worker_task, "Worker", 2048, NULL, 4, NULL);
   xTaskCreate(ppg_task, "PPG Sensor", 1024, NULL, 5, NULL);
+  xTaskCreate(ml_task, "ML Infer", 4096, NULL, 5, NULL);
 }
