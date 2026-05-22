@@ -75,7 +75,6 @@ static struct ble_gatt_svc_def gatt_svcs[] = {
     .includes = NULL,
     .characteristics = (struct ble_gatt_chr_def[]) {
       BLE_GATT_BUFFER_CHR_DEF(model_buffer_service),
-      BLE_GATT_BUFFER_STATE_CHR_DEF(model_buffer_service),
       {0},
     }
   },

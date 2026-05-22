@@ -19,10 +19,6 @@ const ble_uuid128_t ble_buffer_pos_dsc_uuid = BLE_UUID128_INIT(
     0xae, 0x4b, 0x37, 0x79, 0x20, 0x0f, 0x4a, 0x48,
     0xaf, 0x57, 0xbe, 0xb6, 0x9c, 0x5c, 0x56, 0xf5,
 );
-const ble_uuid128_t ble_buffer_sha_dsc_uuid = BLE_UUID128_INIT(
-    0xa0, 0x54, 0xbc, 0x59, 0x48, 0xc6, 0x45, 0x95,
-    0xa0, 0x8f, 0xea, 0xf2, 0x8d, 0x87, 0x7e, 0x71,
-);
 
 struct ble_gatt_buffer_service model_buffer_service = {
   .buffer = BLE_CLIENT_BUFFER_INIT,
@@ -60,10 +56,6 @@ bool ble_buffer_defs_register(
         return true;
       }
 
-      if (ble_uuid_cmp(dsc_uuid, &ble_buffer_sha_dsc_uuid.u) == 0) {
-        service->sha_dsc_handle = dsc_handle;
-        return true;
-      }
     }
   }
 

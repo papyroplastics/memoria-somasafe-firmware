@@ -6,7 +6,7 @@
 #include <esp_log.h>
 
 #include "common.h"
-#include "worker/worker.h"
+#include "utils/worker.h"
 
 static const char tag[] = APP_TAG "-worker";
 

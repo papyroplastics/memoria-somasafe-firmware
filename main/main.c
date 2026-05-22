@@ -6,7 +6,7 @@
 #include "common.h"
 #include "ble/host.h"
 #include "ppg/sensor.h"
-#include "worker/worker.h"
+#include "utils/worker.h"
 
 static const char tag[] = APP_TAG "-main";
 

@@ -1,18 +1,14 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <string.h>
 
 #include <esp_log.h>
-#include <hal/sha_types.h>
 #include <host/ble_att.h>
 #include <host/ble_gatt.h>
-#include <mbedtls/sha256.h>
 
 #include "common.h"
 #include "ble/client_buffer.h"
 #include "ble/buffer_defs.h"
-#include "worker/worker.h"
+#include "utils/worker.h"
 
 static const char tag[] = APP_TAG "-client-buffer";
 
@@ -56,74 +52,37 @@ static int read_u8(struct os_mbuf *om, uint8_t *value_out) {
   return 0;
 }
 
-static int ble_client_buffer_get_checksum(struct ble_client_buffer *buffer,
-    const uint8_t **out_ptr);
+static void buffer_state_reset_work(void *arg) {
+  struct ble_gatt_buffer_service *service = arg;
+  struct ble_client_buffer *buffer = &service->buffer;
 
-struct ble_buffer_state_work {
-  struct ble_client_buffer *buffer;
-  uint8_t state;
-};
+  pthread_mutex_lock(&buffer->mutex);
+  buffer->ready = false;
+  pthread_mutex_unlock(&buffer->mutex);
 
-static void ble_client_buffer_state_work(void *arg) {
-  struct ble_buffer_state_work *work = arg;
-  struct ble_client_buffer *buffer = work->buffer;
-  uint8_t state = work->state;
-  free(work);
-
-  bool notify = false;
-
-  if (state == BLE_BUFFER_STATE_READY) {
-    pthread_mutex_lock(&buffer->mutex);
-
-    const uint8_t *checksum = NULL;
-    int err = ble_client_buffer_get_checksum(buffer, &checksum);
-    if (err == 0) {
-      buffer->state = BLE_BUFFER_STATE_READY;
-      pthread_cond_broadcast(&buffer->cond);
-      notify = true;
-    } else {
-      ESP_LOGE(tag, "failed to compute checksum for READY transition");
-    }
-
-    pthread_mutex_unlock(&buffer->mutex);
-  } else {
-    pthread_mutex_lock(&buffer->mutex);
-    buffer->state = BLE_BUFFER_STATE_NOT_READY;
-    pthread_mutex_unlock(&buffer->mutex);
-    notify = true;
-  }
-
-  if (notify && buffer->state_chr_handle != 0) {
-    ble_gatts_chr_updated(buffer->state_chr_handle);
+  if (service->state_chr_handle != 0) {
+    ble_gatts_chr_updated(service->state_chr_handle);
   }
 }
 
-static int ble_client_buffer_queue_state_work(struct ble_client_buffer *buffer,
-    uint8_t state) {
-  if (state != BLE_BUFFER_STATE_NOT_READY &&
-      state != BLE_BUFFER_STATE_READY) {
+static int ble_client_buffer_set_ready(struct ble_client_buffer *buffer) {
+  pthread_mutex_lock(&buffer->mutex);
+  buffer->ready = true;
+  pthread_cond_broadcast(&buffer->cond);
+  pthread_mutex_unlock(&buffer->mutex);
+  return 0;
+}
+
+static int enqueue_buffer_state_reset(struct ble_gatt_buffer_service *service) {
+  if (worker_queue_push_task(buffer_state_reset_work, service) != 0) {
     return BLE_ATT_ERR_UNLIKELY;
   }
-
-  struct ble_buffer_state_work *work = malloc(sizeof(struct ble_buffer_state_work));
-  if (work == NULL) {
-    return BLE_ATT_ERR_UNLIKELY;
-  }
-
-  work->buffer = buffer;
-  work->state = state;
-
-  if (worker_queue_push_task(ble_client_buffer_state_work, work) != 0) {
-    free(work);
-    return BLE_ATT_ERR_UNLIKELY;
-  }
-
   return 0;
 }
 
 bool ble_client_buffer_lock(struct ble_client_buffer *buffer) {
   pthread_mutex_lock(&buffer->mutex);
-  while (buffer->state != BLE_BUFFER_STATE_READY) {
+  while (!buffer->ready) {
     pthread_cond_wait(&buffer->cond, &buffer->mutex);
   }
 
@@ -137,7 +96,7 @@ bool ble_client_buffer_try_lock(struct ble_client_buffer *buffer, bool *dirty_ou
     return false;
   }
 
-  if (buffer->state != BLE_BUFFER_STATE_READY) {
+  if (!buffer->ready) {
     pthread_mutex_unlock(&buffer->mutex);
     return false;
   }
@@ -185,12 +144,12 @@ static int ble_client_buffer_write(struct ble_client_buffer *buffer, struct os_m
     return 0;
   }
 
-  int err = 0;
   if (pthread_mutex_trylock(&buffer->mutex) != 0) {
     return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
   }
 
-  if (buffer->state != BLE_BUFFER_STATE_NOT_READY) {
+  int err = 0;
+  if (buffer->ready) {
     err = BLE_ATT_ERR_WRITE_NOT_PERMITTED;
     goto out;
   }
@@ -208,7 +167,6 @@ static int ble_client_buffer_write(struct ble_client_buffer *buffer, struct os_m
   }
 
   buffer->pos += value_len;
-  buffer->checksum_dirty = true;
   buffer->dirty = true;
 
 out:
@@ -223,7 +181,7 @@ static int ble_client_buffer_set_size(struct ble_client_buffer *buffer, uint32_t
     return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
   }
 
-  if (buffer->state != BLE_BUFFER_STATE_NOT_READY) {
+  if (buffer->ready) {
     err = BLE_ATT_ERR_WRITE_NOT_PERMITTED;
     goto out;
   }
@@ -239,7 +197,6 @@ static int ble_client_buffer_set_size(struct ble_client_buffer *buffer, uint32_t
     buffer->data = NULL;
   }
 
-  buffer->checksum_dirty = true;
   buffer->dirty = true;
 
   if (size == 0) {
@@ -268,7 +225,7 @@ static int ble_client_buffer_set_pos(struct ble_client_buffer *buffer, uint32_t 
     return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
   }
 
-  if (buffer->state != BLE_BUFFER_STATE_NOT_READY) {
+  if (buffer->ready) {
     pthread_mutex_unlock(&buffer->mutex);
     return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
   }
@@ -280,56 +237,6 @@ static int ble_client_buffer_set_pos(struct ble_client_buffer *buffer, uint32_t 
   }
 
   pthread_mutex_unlock(&buffer->mutex);
-  return 0;
-}
-
-struct sha_str { char hex[SHA256_DIGEST_LENGTH * 2 + 1]; } get_sha_str(
-  const uint8_t checksum[SHA256_DIGEST_LENGTH]) {
-
-  struct sha_str sha_str_i;
-  for (unsigned int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
-    sprintf(sha_str_i.hex + i * 2, "%02x", checksum[i]);
-  }
-  sha_str_i.hex[SHA256_DIGEST_LENGTH * 2] = '\0';
-
-  return sha_str_i;
-}
-
-static int ble_client_buffer_get_checksum(struct ble_client_buffer *buffer,
-    const uint8_t **out_ptr) {
-
-  if (buffer->checksum_dirty) {
-    int err = 0;
-    mbedtls_sha256_context sha_ctx = {0};
-
-    if (buffer->data == NULL && buffer->size != 0) {
-      return BLE_ATT_ERR_UNLIKELY;
-    }
-
-    mbedtls_sha256_init(&sha_ctx);
-
-    err = mbedtls_sha256_starts(&sha_ctx, 0);
-    if (err) goto end;
-
-    if (buffer->size != 0) {
-      err = mbedtls_sha256_update(&sha_ctx, buffer->data, buffer->size);
-      if (err) goto end;
-    }
-
-    err = mbedtls_sha256_finish(&sha_ctx, buffer->checksum);
-    if (err) goto end;
-
-  end:
-    mbedtls_sha256_free(&sha_ctx);
-    if (err != 0) {
-      return BLE_ATT_ERR_UNLIKELY;
-    }
-
-    buffer->checksum_dirty = false;
-    ESP_LOGI(tag, "computed SHA-256 of buffer: %s", get_sha_str(buffer->checksum).hex);
-  }
-
-  *out_ptr = buffer->checksum;
   return 0;
 }
 
@@ -398,53 +305,6 @@ int ble_client_buffer_pos_dsc_access_cb(uint16_t conn_handle, uint16_t attr_hand
   }
 }
 
-int ble_client_buffer_sha_dsc_access_cb(uint16_t conn_handle, uint16_t attr_handle,
-    struct ble_gatt_access_ctxt *ctxt, void *arg) {
-  (void)conn_handle;
-  (void)attr_handle;
-
-  struct ble_gatt_buffer_service *service = arg;
-
-  const uint8_t *checksum = NULL;
-  int err = ble_client_buffer_get_checksum(&service->buffer, &checksum);
-  if (err != 0) {
-    return err;
-  }
-
-  switch (ctxt->op) {
-    case BLE_GATT_ACCESS_OP_READ_DSC: 
-      if (os_mbuf_append(ctxt->om, checksum, SHA256_DIGEST_LENGTH) != 0) {
-        return BLE_ATT_ERR_UNLIKELY;
-      }
-
-      break;
-
-    case BLE_GATT_ACCESS_OP_WRITE_DSC: {
-      uint8_t client_checksum[SHA256_DIGEST_LENGTH];
-
-      if (os_mbuf_copydata(ctxt->om, 0, SHA256_DIGEST_LENGTH, client_checksum) != 0) {
-        return BLE_ATT_ERR_UNLIKELY;
-      }
-
-      if (memcmp(checksum, client_checksum, SHA256_DIGEST_LENGTH) == 0) {
-        ESP_LOGI(tag, "buffer checksum verified: %s", get_sha_str(client_checksum).hex);
-
-      } else {
-        ESP_LOGI(tag, "checksum verification failed:\n  client: %s\n  server: %s", 
-            get_sha_str(checksum).hex, get_sha_str(client_checksum).hex);
-      }
-
-      break;
-    }
-
-    default:
-      ESP_LOGE(tag, "illegal operation to buffer sha dsc with code: %d", ctxt->op);
-      return BLE_ATT_ERR_UNLIKELY;
-  }
-
-  return 0;
-}
-
 int ble_client_buffer_state_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     struct ble_gatt_access_ctxt *ctxt, void *arg) {
   (void)conn_handle;
@@ -455,7 +315,7 @@ int ble_client_buffer_state_chr_access_cb(uint16_t conn_handle, uint16_t attr_ha
   switch (ctxt->op) {
     case BLE_GATT_ACCESS_OP_READ_CHR:
       if (pthread_mutex_trylock(&service->buffer.mutex) == 0) {
-        uint8_t state = service->buffer.state;
+        uint8_t state = service->buffer.ready ? BLE_BUFFER_STATE_READY : BLE_BUFFER_STATE_NOT_READY;
         pthread_mutex_unlock(&service->buffer.mutex);
         return append_u8(ctxt->om, state);
       }
@@ -466,7 +326,13 @@ int ble_client_buffer_state_chr_access_cb(uint16_t conn_handle, uint16_t attr_ha
       if (err != 0) {
         return err;
       }
-      return ble_client_buffer_queue_state_work(&service->buffer, state);
+      if (state == BLE_BUFFER_STATE_READY) {
+        return ble_client_buffer_set_ready(&service->buffer);
+      }
+      if (state == BLE_BUFFER_STATE_NOT_READY) {
+        return enqueue_buffer_state_reset(service);
+      }
+      return BLE_ATT_ERR_UNLIKELY;
     }
     default:
       ESP_LOGE(tag, "illegal operation to buffer state chr with code: %d", ctxt->op);
