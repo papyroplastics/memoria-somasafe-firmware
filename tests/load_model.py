@@ -10,11 +10,35 @@ MODEL_STATE_CHR_UUID = "794d330a-8c90-229b-b94c-d1025b1c7d19"
 MODEL_SIZE_DSC_UUID = "237384c8-bf34-5587-ab48-ae4b0a7e2585"
 MODEL_POS_DSC_UUID  = "f5565c9c-b6be-57af-484a-0f2079374bae"
 
+ML_RESULTS_CHR_UUID = "7228d086-4fc1-4b9c-fa4d-1f715ac23c54"
+ML_ERRORS_CHR_UUID  = "9c8b8c42-5a25-6ea5-c642-8a7acf1f330e"
+
 BUFFER_STATE_NOT_READY = 0
 BUFFER_STATE_READY = 1
 
+ML_ERROR_NAMES = {
+    0: "NONE",
+    1: "MODEL_LOAD",
+    2: "UNSUPPORTED_OP",
+    3: "TENSOR_ALLOC",
+    4: "INVOKE",
+    5: "INVALID_SHAPE",
+}
+
+def on_ml_results(_, data: bytearray):
+    n = len(data) // 2
+    inputs  = [int.from_bytes([b], byteorder='little', signed=True) for b in data[:n]]
+    outputs = [int.from_bytes([b], byteorder='little', signed=True) for b in data[n:n*2]]
+    pairs = ", ".join(f"({i},{o})" for i, o in zip(inputs, outputs))
+    print(f"ML Results ({n} pairs): {pairs}", file=sys.stderr)
+
+def on_ml_error(_, data: bytearray):
+    code = data[0]
+    name = ML_ERROR_NAMES.get(code, "UNKNOWN")
+    print(f"ML Error: {name} (code={code})", file=sys.stderr)
+
 if len(sys.argv) != 2:
-    print(f"USE: python {sys.argv[0]} <model file>")
+    print(f"USE: python {sys.argv[0]} <model file>", file=sys.stderr)
     exit(1)
 
 model_file = pathlib.Path(sys.argv[1])
@@ -28,29 +52,35 @@ async def main():
         return
 
     # Este bloque inicia la conección, cuando el bloque se termina la conección se cierra
-    async with BleakClient(device) as client: 
-        print(f"Connection stablised with {client.name} address {client.address}")
+    async with BleakClient(device) as client:
+        print(f"Connection stablised with {client.name} address {client.address}", file=sys.stderr)
 
         model_chr = None
         model_state_chr = None
         model_size_dsc = None
         model_pos_dsc  = None
+        ml_results_chr = None
+        ml_errors_chr  = None
 
         # Imprimir los servicios del dispositivo con sus caracteristicas
-        print("\nDevice Services: ")
+        print("\nDevice Services: ", file=sys.stderr)
         for svc in client.services:
-            print(f"- Service \"{svc.description}\" - {svc.uuid} - {svc.handle}:")
+            print(f"- Service \"{svc.description}\" - {svc.uuid} - {svc.handle}:", file=sys.stderr)
 
             for chr in svc.characteristics:
-                print(f"  - Characteristic \"{chr.description}\" - {chr.uuid} - {chr.handle}:")
+                print(f"  - Characteristic \"{chr.description}\" - {chr.uuid} - {chr.handle}:", file=sys.stderr)
 
                 if chr.uuid == MODEL_CHR_UUID:
                     model_chr = chr
                 elif chr.uuid == MODEL_STATE_CHR_UUID:
                     model_state_chr = chr
+                elif chr.uuid == ML_RESULTS_CHR_UUID:
+                    ml_results_chr = chr
+                elif chr.uuid == ML_ERRORS_CHR_UUID:
+                    ml_errors_chr = chr
 
                 for dsc in chr.descriptors:
-                    print(f"    - Descriptor \"{dsc.description}\" - {dsc.uuid} - {dsc.handle}")
+                    print(f"    - Descriptor \"{dsc.description}\" - {dsc.uuid} - {dsc.handle}", file=sys.stderr)
 
                     if dsc.uuid == MODEL_SIZE_DSC_UUID:
                         model_size_dsc = dsc
@@ -62,7 +92,9 @@ async def main():
         if model_chr is None or \
             model_state_chr is None or \
             model_size_dsc is None or \
-            model_pos_dsc is None:
+            model_pos_dsc is None or \
+            ml_results_chr is None or \
+            ml_errors_chr is None:
 
             print("Unable to find model attributes", file=sys.stderr)
             exit(1)
@@ -74,22 +106,22 @@ async def main():
         model_size_od = int.from_bytes(await client.read_gatt_descriptor(model_size_dsc), byteorder='little')
 
         if model_size_od != len(model_bytes):
-            print(f"Failed to set model size {len(model_bytes)}, read {model_size_od}")
+            print(f"Failed to set model size {len(model_bytes)}, read {model_size_od}", file=sys.stderr)
             exit(1)
 
-        print(f"Model size on-device: {model_size_od}")
+        print(f"Model size on-device: {model_size_od}", file=sys.stderr)
 
 
         # Aquire MTU
         if client.backend_id == BleakBackend.BLUEZ_DBUS:
             await client._backend._acquire_mtu()  # type: ignore
 
-            async with asyncio.timeout(5):  
-                while client.mtu_size == 23:  
+            async with asyncio.timeout(5):
+                while client.mtu_size == 23:
                     await asyncio.sleep(0.25)
 
         mtu = client.mtu_size
-        print(f"MTU set to {mtu}")
+        print(f"MTU set to {mtu}", file=sys.stderr)
 
         # Write the model
         pos = 0
@@ -99,7 +131,7 @@ async def main():
 
             pos += len(buf)
 
-        print(f"Finished writing model")
+        print(f"Finished writing model", file=sys.stderr)
 
         await client.write_gatt_descriptor(model_pos_dsc, int.to_bytes(0, length=4, byteorder='little'))
         read_data = bytearray()
@@ -110,11 +142,25 @@ async def main():
             read_data.extend(chunk)
 
         if read_data[:len(model_bytes)] == model_bytes:
-            print("Model readback matches written data")
+            print("Model readback matches written data", file=sys.stderr)
         else:
-            breakpoint()
             print("Model readback mismatch", file=sys.stderr)
+            exit(1)
+
+        # Subscribe to ML output characteristics before signalling the model is ready
+        await client.start_notify(ml_results_chr, on_ml_results)
+        await client.start_notify(ml_errors_chr, on_ml_error)
 
         await client.write_gatt_char(model_state_chr, bytes([BUFFER_STATE_READY]), response=True)
+        print("Model set to ready, waiting for inference output (Ctrl+C to stop)...", file=sys.stderr)
+
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            pass
+
+        await client.stop_notify(ml_results_chr)
+        await client.stop_notify(ml_errors_chr)
 
 asyncio.run(main())

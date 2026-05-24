@@ -36,7 +36,6 @@ static uint8_t ml_results_payload[ML_RESULTS_MAX_PAYLOAD];
 static uint16_t ml_results_len = 0;
 static uint8_t ml_last_error = 0;
 
-
 void ml_send_results(const int8_t *inputs, const int8_t *outputs, size_t count) {
   uint16_t conn = ble_gap_get_conn_handle();
   uint16_t mtu = BLE_ATT_MTU_DFLT;
@@ -71,29 +70,7 @@ void ml_send_results(const int8_t *inputs, const int8_t *outputs, size_t count) 
   }
 }
 
-int ml_results_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
-    struct ble_gatt_access_ctxt *ctxt, void *arg) {
-  (void)attr_handle;
-  (void)arg;
-
-  if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
-    return BLE_ATT_ERR_UNLIKELY;
-  }
-
-  // TODO: limit data transfer by mtu properly
-  //uint16_t mtu = ble_att_mtu(conn_handle);
-  if (ml_results_len == 0) {
-    return 0;
-  }
-
-  if (os_mbuf_append(ctxt->om, ml_results_payload, ml_results_len) != 0) {
-    return BLE_ATT_ERR_UNLIKELY;
-  }
-
-  return 0;
-}
-
-void ml_report_error(int code) {
+void ml_report_error(enum ml_error_code code) {
   ml_last_error = (uint8_t)code;
   ble_gatt_notify_chr(ml_errors_chr_handle, &ml_last_error, sizeof(ml_last_error));
 }
@@ -103,12 +80,16 @@ int ml_errors_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
   (void)attr_handle;
   (void)arg;
 
-  if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
-    return BLE_ATT_ERR_UNLIKELY;
-  }
+  switch (ctxt->op) {
+    case BLE_GATT_ACCESS_OP_READ_CHR: 
+      if (os_mbuf_append(ctxt->om, &ml_last_error, sizeof(ml_last_error)) != 0) {
+        return BLE_ATT_ERR_UNLIKELY;
+      }
+      break;
 
-  if (os_mbuf_append(ctxt->om, &ml_last_error, sizeof(ml_last_error)) != 0) {
-    return BLE_ATT_ERR_UNLIKELY;
+    default:
+      ESP_LOGE(tag, "illegal operation to HR chr with code: %d", ctxt->op);
+      return BLE_ATT_ERR_UNLIKELY;
   }
 
   return 0;
