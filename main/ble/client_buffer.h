@@ -20,15 +20,24 @@ extern const ble_uuid128_t ble_buffer_pos_dsc_uuid;
 
 #define BLE_BUFFER_STATE_NOT_READY 0
 #define BLE_BUFFER_STATE_READY 1
+enum buffer_access_state {
+  BUF_ACC_NOT_READY = 0,
+  BUF_ACC_READY = 1
+};
 
 struct ble_client_buffer {
   uint8_t *data;
   uint32_t pos;
   uint32_t size;
-  pthread_mutex_t mutex;
-  pthread_cond_t cond;
+
   bool dirty;
   bool ready;
+
+  pthread_mutex_t mutex;
+  pthread_cond_t cond;
+
+  uint16_t chr_handle;
+  uint16_t state_chr_handle;
 };
 
 #define BLE_CLIENT_BUFFER_INIT \
@@ -36,20 +45,16 @@ struct ble_client_buffer {
     .data = NULL, \
     .pos = 0, \
     .size = 0, \
+    \
+    .dirty = true, \
+    .ready = false, \
+    \
     .mutex = PTHREAD_MUTEX_INITIALIZER, \
     .cond = PTHREAD_COND_INITIALIZER, \
-    .dirty = false, \
-    .ready = false, \
+    \
+    .chr_handle = 0, \
+    .state_chr_handle = 0 \
   }
-
-struct ble_gatt_buffer_service {
-  struct ble_client_buffer buffer;
-  ble_uuid128_t svc_uuid;
-  uint16_t chr_handle;
-  uint16_t state_chr_handle;
-  uint16_t size_dsc_handle;
-  uint16_t pos_dsc_handle;
-};
 
 int ble_client_buffer_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     struct ble_gatt_access_ctxt *ctxt, void *arg);

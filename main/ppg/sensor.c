@@ -7,17 +7,17 @@
 
 #include "common.h"
 #include "ppg/sensor.h"
+#include "esp_system.h"
+#include "ppg/service.h"
 #include "ble/host.h"
 #include "ble/gatt.h"
 
 static const char tag[] = APP_TAG "-ppg";
 static uint8_t heart_rate;
 
-uint8_t ppg_get_hr(void) { return heart_rate; }
-
-#ifndef M_PI
-#define M_PI 3.14159265358979323846f
-#endif
+uint8_t ppg_get_hr(void) {
+  return heart_rate;
+}
 
 static struct ppg_ring_buffer ppg_ring = {
   .mutex = PTHREAD_MUTEX_INITIALIZER,
@@ -99,11 +99,9 @@ void ppg_ring_release_read(void) {
   pthread_mutex_unlock(&ppg_ring.read_mutex);
 }
 
-static void signal_hr(void* arg) {
-  ble_gatt_hr_chr_update();
-}
-
 void ppg_task(void *param) {
+  (void)param;
+
   const float step = (2.0f * (float)M_PI) / (float)PPG_SNAPSHOT_SAMPLES;
   struct ppg_snapshot *snapshot = NULL;
   uint16_t sample_idx = 0;
@@ -126,8 +124,7 @@ void ppg_task(void *param) {
     if (now - last_hr_tick >= pdMS_TO_TICKS(1000)) {
       last_hr_tick = now;
       heart_rate = (uint8_t)(60 + ((sample_idx / PPG_SAMPLE_RATE_HZ) % 21));
-      ESP_LOGI(tag, "HR updated to %d", heart_rate);
-      ble_work_queue_push_task(signal_hr, NULL);
+      ble_gatts_chr_updated(hr_chr_handle);
     }
 
     if (sample_idx >= PPG_SNAPSHOT_SAMPLES) {
@@ -139,6 +136,6 @@ void ppg_task(void *param) {
     vTaskDelay(pdMS_TO_TICKS(1000 / PPG_SAMPLE_RATE_HZ));
   }
 
-  ESP_LOGE(tag, "PPG task exiting unexpectedly, restarting system");
+  ESP_LOGE(tag, "PPG task exited unexpectedly");
   esp_restart();
 }

@@ -5,6 +5,7 @@
 #include "ble/gap.h"
 #include "ble/gatt.h"
 #include "ble/host.h"
+#include "ppg/service.h"
 
 static const char tag[] = APP_TAG "-gap";
 
@@ -15,7 +16,6 @@ static const uint16_t adv_interval_max_ms = 510;
 
 static const uint8_t ble_addr_type = BLE_ADDR_RANDOM;
 
-static bool cur_conn_active = false;
 static uint16_t cur_conn_handle = 0;
 
 static int connection_event_handler(struct ble_gap_event *event, void *arg) {
@@ -25,7 +25,6 @@ static int connection_event_handler(struct ble_gap_event *event, void *arg) {
       ESP_LOGI(tag, "connection established with client %d",
           event->connect.conn_handle);
 
-      cur_conn_active = true;
       cur_conn_handle = event->connect.conn_handle;
 
     } else {
@@ -37,8 +36,7 @@ static int connection_event_handler(struct ble_gap_event *event, void *arg) {
     ESP_LOGI(tag, "connection finished with client %d and reason %d",
              event->disconnect.conn.conn_handle, event->disconnect.reason);
 
-    cur_conn_active = false;
-    cur_conn_handle = 0;
+    cur_conn_handle = BLE_HS_CONN_HANDLE_NONE;
     ble_gap_advert_start();
     break;
 
@@ -183,4 +181,8 @@ int ble_gap_advert_stop(void) {
 
   ESP_LOGI(tag, "advertising stopped by application");
   return 0;
+}
+
+uint16_t ble_gap_get_conn_handle(void) {
+  return cur_conn_handle;
 }

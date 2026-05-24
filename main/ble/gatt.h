@@ -2,16 +2,8 @@
 #define BLE_GATT_H
 
 #include <stdint.h>
-#include <host/ble_gatt.h>
-#include <host/ble_uuid.h>
 
-extern const ble_uuid16_t hr_svc_uuid;
-extern struct ble_gatt_buffer_service ml_buffer_service;
-
-int ble_gatt_init(void);
-
-void ble_gatt_hr_chr_update(void);
-
-void ble_gatt_att_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg);
+int ble_gatt_task_prepare(void);
+int ble_gatt_notify_chr(uint16_t chr_handle, const uint8_t *payload, uint16_t payload_len);
 
 #endif  // BLE_GATT_H

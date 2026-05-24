@@ -1,0 +1,116 @@
+#include <esp_log.h>
+#include <stddef.h>
+#include <string.h>
+#include <host/ble_att.h>
+#include <host/ble_hs.h>
+
+#include "common.h"
+#include "ml/service.h"
+#include "ble/gap.h"
+#include "ble/gatt.h"
+#include "ble/client_buffer.h"
+
+static const char tag[] = APP_TAG "-ml-service";
+
+struct ble_client_buffer ml_model_buffer = BLE_CLIENT_BUFFER_INIT;
+
+const ble_uuid128_t ml_model_buf_svc_uuid = BLE_UUID128_INIT(
+      0x38, 0x27, 0x43, 0xd4, 0xda, 0xb7, 0x43, 0xfe,
+      0x92, 0x24, 0x43, 0x75, 0x40, 0x38, 0x52, 0xa4,
+);
+
+const ble_uuid128_t ml_results_chr_uuid = BLE_UUID128_INIT(
+    0x54, 0x3c, 0xc2, 0x5a, 0x71, 0x1f, 0x4d, 0xfa,
+    0x9c, 0x4b, 0xc1, 0x4f, 0x86, 0xd0, 0x28, 0x72
+);
+const ble_uuid128_t ml_errors_chr_uuid = BLE_UUID128_INIT(
+    0x0e, 0x33, 0x1f, 0xcf, 0x7a, 0x8a, 0x42, 0xc6,
+    0xa5, 0x6e, 0x25, 0x5a, 0x42, 0x8c, 0x8b, 0x9c
+);
+
+uint16_t ml_results_chr_handle;
+uint16_t ml_errors_chr_handle;
+
+#define ML_RESULTS_MAX_PAYLOAD 256
+static uint8_t ml_results_payload[ML_RESULTS_MAX_PAYLOAD];
+static uint16_t ml_results_len = 0;
+static uint8_t ml_last_error = 0;
+
+
+void ml_send_results(const int8_t *inputs, const int8_t *outputs, size_t count) {
+  uint16_t conn = ble_gap_get_conn_handle();
+  uint16_t mtu = BLE_ATT_MTU_DFLT;
+  if (conn != BLE_HS_CONN_HANDLE_NONE) {
+    uint16_t m = ble_att_mtu(conn);
+    if (m != 0) mtu = m;
+  }
+
+  uint16_t max_values = (uint16_t)(mtu - 3);
+  if (max_values % 2 != 0) max_values--;
+  size_t max_pairs = max_values / 2;
+  if (max_pairs == 0) return;
+
+  size_t offset = 0;
+  while (offset < count) {
+    size_t pairs = count - offset;
+    if (pairs > max_pairs) pairs = max_pairs;
+
+    size_t payload_len = pairs * 2;
+    if (payload_len > ML_RESULTS_MAX_PAYLOAD) {
+      payload_len = ML_RESULTS_MAX_PAYLOAD;
+      pairs = payload_len / 2;
+    }
+
+    memcpy(ml_results_payload, inputs + offset, pairs);
+    memcpy(ml_results_payload + pairs, outputs + offset, pairs);
+    ml_results_len = (uint16_t)(pairs * 2);
+
+    ble_gatt_notify_chr(ml_results_chr_handle, ml_results_payload, ml_results_len);
+
+    offset += pairs;
+  }
+}
+
+int ml_results_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *ctxt, void *arg) {
+  (void)attr_handle;
+  (void)arg;
+
+  if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+    return BLE_ATT_ERR_UNLIKELY;
+  }
+
+  // TODO: limit data transfer by mtu properly
+  //uint16_t mtu = ble_att_mtu(conn_handle);
+  if (ml_results_len == 0) {
+    return 0;
+  }
+
+  if (os_mbuf_append(ctxt->om, ml_results_payload, ml_results_len) != 0) {
+    return BLE_ATT_ERR_UNLIKELY;
+  }
+
+  return 0;
+}
+
+void ml_report_error(int code) {
+  ml_last_error = (uint8_t)code;
+  ble_gatt_notify_chr(ml_errors_chr_handle, &ml_last_error, sizeof(ml_last_error));
+}
+
+int ml_errors_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *ctxt, void *arg) {
+  (void)attr_handle;
+  (void)arg;
+
+  if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) {
+    return BLE_ATT_ERR_UNLIKELY;
+  }
+
+  if (os_mbuf_append(ctxt->om, &ml_last_error, sizeof(ml_last_error)) != 0) {
+    return BLE_ATT_ERR_UNLIKELY;
+  }
+
+  return 0;
+}
+

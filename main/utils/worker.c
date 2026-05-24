@@ -6,6 +6,7 @@
 #include <esp_log.h>
 
 #include "common.h"
+#include "esp_system.h"
 #include "utils/worker.h"
 
 static const char tag[] = APP_TAG "-worker";
@@ -61,8 +62,7 @@ void worker_task(void *param) {
   if (worker_queue == NULL) {
     if (worker_init() != 0) {
       ESP_LOGE(tag, "worker queue init failed");
-      vTaskDelete(NULL);
-      return;
+      esp_restart();
     }
   }
 
@@ -75,4 +75,7 @@ void worker_task(void *param) {
       free(item);
     }
   }
+
+  ESP_LOGE(tag, "worker task exited unexpectedly");
+  esp_restart();
 }

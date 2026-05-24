@@ -2,6 +2,8 @@
 #include <esp_log.h>
 #include <host/ble_hs.h>
 #include <nimble/nimble_port.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include "common.h"
 #include "ble/host.h"
@@ -9,8 +11,6 @@
 #include "ble/gap.h"
 
 static const char tag[] = APP_TAG "-ble";
-
-static const uint8_t nimble_port_max_retries = 10;
 
 static void on_stack_reset(int reason) {
   ESP_LOGI(tag, "NimBLE stack reset with reason %d", reason);
@@ -22,7 +22,6 @@ static void on_stack_sync(void) {
 }
 
 int ble_init() {
-  // NimBLE stack initialization
   int err = nimble_port_init();
   if (err != ESP_OK) {
     ESP_LOGE(tag, "failed to initialize NimBLE stack");
@@ -31,7 +30,6 @@ int ble_init() {
 
   ble_hs_cfg.sync_cb = on_stack_sync;
   ble_hs_cfg.reset_cb = on_stack_reset;
-  ble_hs_cfg.gatts_register_cb = ble_gatt_att_register_cb;
   ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
   err = ble_gap_task_prepare();
@@ -40,7 +38,7 @@ int ble_init() {
     return 1;
   }
 
-  err = ble_gatt_init();
+  err = ble_gatt_task_prepare();
   if (err != 0) {
     ESP_LOGE(tag, "failed to initialize GATT service");
     return 1;
@@ -50,13 +48,12 @@ int ble_init() {
 }
 
 void ble_task(void *param) {
-  ESP_LOGI(tag, "starting NimBLE task");
-  for (uint8_t i = 0; i < nimble_port_max_retries; i++) {
-    nimble_port_run();
-    ESP_LOGE(tag, "nimble_port_run() returned unexpectedly, retrying");
-  }
+  (void)param;
 
-  ESP_LOGE(tag, "nimble_port_run() returned after %d retries, restarting system", nimble_port_max_retries);
+  ESP_LOGI(tag, "starting NimBLE stack");
+  nimble_port_run();
+
+  ESP_LOGE(tag, "nimble port task exited unexpectedly");
   esp_restart();
 }
 
