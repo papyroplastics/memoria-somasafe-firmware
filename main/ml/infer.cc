@@ -90,8 +90,6 @@ void ml_task(void *param) {
     esp_restart();
   }
 
-  static int8_t q_inputs[PPG_SNAPSHOT_SAMPLES];
-
   for (;;) {
     bool dirty = ble_client_buffer_lock(&ml_model_buffer);
     if (dirty) {
@@ -125,16 +123,9 @@ void ml_task(void *param) {
     }
 
     size_t sample_count = snapshot->sample_count;
-    if (sample_count > PPG_SNAPSHOT_SAMPLES) {
-      sample_count = PPG_SNAPSHOT_SAMPLES;
-    }
-
-    for (size_t i = 0; i < sample_count; i++) {
-      q_inputs[i] = quantize_value(snapshot->samples[i], input_tensor);
-    }
-    ppg_ring_release_read();
 
     if (sample_count == 0) {
+      ppg_ring_release_read();
       ble_client_buffer_unlock(&ml_model_buffer);
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
@@ -142,11 +133,14 @@ void ml_task(void *param) {
 
     int batch_size = input_tensor->dims->data[0];
     if (batch_size <= 0 || output_tensor->dims->data[0] != batch_size) {
+      ppg_ring_release_read();
       ble_client_buffer_unlock(&ml_model_buffer);
       ml_report_error(ML_ERR_INVALID_SHAPE);
       vTaskDelay(pdMS_TO_TICKS(500));
       continue;
     }
+
+    ml_send_snapshot_start(snapshot->start_ms, snapshot->end_ms);
 
     size_t offset = 0;
     while (offset < sample_count) {
@@ -158,7 +152,7 @@ void ml_task(void *param) {
       for (int i = 0; i < batch_size; i++) {
         int8_t value = input_tensor->params.zero_point;
         if ((size_t)i < batch) {
-          value = q_inputs[offset + (size_t)i];
+          value = quantize_value(snapshot->samples[offset + (size_t)i], input_tensor);
         }
         input_tensor->data.int8[i] = value;
       }
@@ -170,13 +164,8 @@ void ml_task(void *param) {
         break;
       }
 
-      static int8_t q_outputs[PPG_SNAPSHOT_SAMPLES];
-      for (size_t i = 0; i < batch; i++) {
-        q_outputs[i] = output_tensor->data.int8[i];
-      }
-
       ble_client_buffer_unlock(&ml_model_buffer);
-      ml_send_results(q_inputs + offset, q_outputs, batch);
+      ml_send_results(input_tensor->data.int8, output_tensor->data.int8, batch);
 
       offset += batch;
       if (offset < sample_count) {
@@ -191,6 +180,8 @@ void ml_task(void *param) {
         }
       }
     }
+
+    ppg_ring_release_read();
   }
 
   ESP_LOGE(tag, "ML task exited unexpectedly");

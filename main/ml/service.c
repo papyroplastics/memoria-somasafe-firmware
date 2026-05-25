@@ -36,6 +36,14 @@ static uint8_t ml_results_payload[ML_RESULTS_MAX_PAYLOAD];
 static uint16_t ml_results_len = 0;
 static uint8_t ml_last_error = 0;
 
+void ml_send_snapshot_start(uint32_t start_ms, uint32_t end_ms) {
+  uint8_t payload[9];
+  payload[0] = 0;
+  memcpy(payload + 1, &start_ms, sizeof(start_ms));
+  memcpy(payload + 5, &end_ms, sizeof(end_ms));
+  ble_gatt_notify_chr(ml_results_chr_handle, payload, sizeof(payload));
+}
+
 void ml_send_results(const int8_t *inputs, const int8_t *outputs, size_t count) {
   uint16_t conn = ble_gap_get_conn_handle();
   uint16_t mtu = BLE_ATT_MTU_DFLT;
@@ -44,7 +52,8 @@ void ml_send_results(const int8_t *inputs, const int8_t *outputs, size_t count) 
     if (m != 0) mtu = m;
   }
 
-  uint16_t max_values = (uint16_t)(mtu - 3);
+  // -3 ATT overhead, -1 type byte
+  uint16_t max_values = (uint16_t)(mtu - 4);
   if (max_values % 2 != 0) max_values--;
   size_t max_pairs = max_values / 2;
   if (max_pairs == 0) return;
@@ -54,15 +63,14 @@ void ml_send_results(const int8_t *inputs, const int8_t *outputs, size_t count) 
     size_t pairs = count - offset;
     if (pairs > max_pairs) pairs = max_pairs;
 
-    size_t payload_len = pairs * 2;
-    if (payload_len > ML_RESULTS_MAX_PAYLOAD) {
-      payload_len = ML_RESULTS_MAX_PAYLOAD;
-      pairs = payload_len / 2;
+    if (1 + pairs * 2 > ML_RESULTS_MAX_PAYLOAD) {
+      pairs = (ML_RESULTS_MAX_PAYLOAD - 1) / 2;
     }
 
-    memcpy(ml_results_payload, inputs + offset, pairs);
-    memcpy(ml_results_payload + pairs, outputs + offset, pairs);
-    ml_results_len = (uint16_t)(pairs * 2);
+    ml_results_payload[0] = 1;
+    memcpy(ml_results_payload + 1, inputs + offset, pairs);
+    memcpy(ml_results_payload + 1 + pairs, outputs + offset, pairs);
+    ml_results_len = (uint16_t)(1 + pairs * 2);
 
     ble_gatt_notify_chr(ml_results_chr_handle, ml_results_payload, ml_results_len);
 

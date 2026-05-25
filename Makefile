@@ -1,10 +1,10 @@
-
 SHELL := bash
 
 BIN := build/embed-somasafe.bin
 SRC := $(wildcard main/*.c) $(wildcard main/*/*.c)
 HDR := $(wildcard main/*.h) $(wildcard main/*/*.h)
 
+.PHONY: run debug gfb qemu format test
 run:
 	idf.py flash monitor
 
@@ -23,4 +23,7 @@ qemu: ${BIN}
 
 format:
 	clang-format -i ${SRC} ${HDR}
+
+test:
+	uv run tests/load_model.py ../tensorflow-model/models/post-train-opti.tflite
 

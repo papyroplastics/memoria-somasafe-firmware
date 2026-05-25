@@ -250,7 +250,7 @@ static int ble_client_buffer_set_size(struct ble_client_buffer *buffer, uint32_t
     goto out;
   }
 
-  ESP_LOGE(tag, "set model size to %d", size);
+  ESP_LOGI(tag, "set buffer size to %d", size);
   buffer->size = size;
 
 out:
@@ -284,17 +284,11 @@ int ble_client_buffer_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
   (void)arg;
 
   struct ble_client_buffer *buffer = arg;
-  static uint32_t read_count = 0;
-  static uint32_t write_count = 0;
 
   switch (ctxt->op) {
     case BLE_GATT_ACCESS_OP_READ_CHR:
-      ESP_LOGI(tag, "read %d offset: %d", read_count, ctxt->offset);
-      read_count++;
       return ble_client_buffer_read(buffer, conn_handle, ctxt->om);
     case BLE_GATT_ACCESS_OP_WRITE_CHR:
-      ESP_LOGI(tag, "write %d offset: %d", write_count, ctxt->offset);
-      write_count++;
       return ble_client_buffer_write(buffer, ctxt->om);
 
     default:
