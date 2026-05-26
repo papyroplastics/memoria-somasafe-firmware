@@ -1,6 +1,6 @@
 SHELL := bash
 
-BIN := build/embed-somasafe.bin
+BIN := build/somasafe-firmware.bin
 SRC := $(wildcard main/*.c) $(wildcard main/*/*.c)
 HDR := $(wildcard main/*.h) $(wildcard main/*/*.h)
 
