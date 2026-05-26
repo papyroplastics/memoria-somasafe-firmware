@@ -59,7 +59,7 @@ static struct ble_gatt_svc_def gatt_svcs[] = {
   },
   {
     .type = BLE_GATT_SVC_TYPE_PRIMARY,
-    .uuid = &ml_model_buf_svc_uuid.u,
+    .uuid = &ml_svc_uuid.u,
     .includes = NULL,
     .characteristics = (struct ble_gatt_chr_def[]) {
       {

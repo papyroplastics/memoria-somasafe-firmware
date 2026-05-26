@@ -6,6 +6,7 @@
 #include "ble/gatt.h"
 #include "ble/host.h"
 #include "ppg/service.h"
+#include "ml/service.h"
 
 static const char tag[] = APP_TAG "-gap";
 
@@ -94,14 +95,8 @@ int ble_gap_advert_config(void) {
   }
 
   // Set advertisement data
-  const ble_uuid16_t adv_svc_uuids[] = {hr_svc_uuid};
-
   const struct ble_hs_adv_fields adv_fields = {
     .flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP,
-
-    .uuids16 = adv_svc_uuids,
-    .num_uuids16 = sizeof(adv_svc_uuids) / sizeof(adv_svc_uuids[0]),
-    .uuids16_is_complete = 0,
 
     .name = (const uint8_t *)DEV_NAME_SHORT,
     .name_len = strlen(DEV_NAME_SHORT),
@@ -127,10 +122,21 @@ int ble_gap_advert_config(void) {
   }
 
   // Set scan response data
+  const ble_uuid16_t adv_svc_uuid16[] = { hr_svc_uuid };
+  const ble_uuid128_t adv_svc_uuid128[] = { ml_svc_uuid };
+
   const struct ble_hs_adv_fields rsp_fields = {
     .name = (const uint8_t *)DEV_NAME,
     .name_len = strlen(DEV_NAME),
     .name_is_complete = 1,
+
+    .uuids16 = adv_svc_uuid16,
+    .num_uuids16 = sizeof(adv_svc_uuid16) / sizeof(*adv_svc_uuid16),
+    .uuids16_is_complete = 1,
+
+    .uuids128 = adv_svc_uuid128,
+    .num_uuids128 = sizeof(adv_svc_uuid128) / sizeof(*adv_svc_uuid128),
+    .uuids128_is_complete = 1,
 
     .device_addr = ble_addr.val,
     .device_addr_type = ble_addr.type,

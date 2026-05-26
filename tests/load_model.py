@@ -8,7 +8,7 @@ from bleak import BleakClient, BleakScanner, BleakBackend
 
 DEV_NAME = "SomaSafe Device"
 
-MODEL_CHR_UUID      = "8f04f3a6-1dcb-8a86-c04d-6fa38c87f25a"
+MODEL_CHR_UUID       = "8f04f3a6-1dcb-8a86-c04d-6fa38c87f25a"
 MODEL_STATE_CHR_UUID = "794d330a-8c90-229b-b94c-d1025b1c7d19"
 MODEL_SIZE_DSC_UUID  = "237384c8-bf34-5587-ab48-ae4b0a7e2585"
 MODEL_POS_DSC_UUID   = "f5565c9c-b6be-57af-484a-0f2079374bae"
@@ -199,5 +199,5 @@ async def main():
     plt.tight_layout()
     plt.show()
 
-
 asyncio.run(main())
+

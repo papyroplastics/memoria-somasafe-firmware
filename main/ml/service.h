@@ -21,7 +21,7 @@ enum ml_error_code {
 
 extern struct ble_client_buffer ml_model_buffer;
 
-extern const ble_uuid128_t ml_model_buf_svc_uuid;
+extern const ble_uuid128_t ml_svc_uuid;
 extern const ble_uuid128_t ml_results_chr_uuid;
 extern const ble_uuid128_t ml_errors_chr_uuid;
 
