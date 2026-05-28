@@ -121,17 +121,18 @@ void ppg_task(void *param) {
     sample_idx++;
 
     TickType_t now = xTaskGetTickCount();
+    if (sample_idx >= PPG_SNAPSHOT_SAMPLES) {
+      snapshot->end_ms = (uint32_t)(now * portTICK_PERIOD_MS);
+      ppg_ring_release_write();
+      snapshot = NULL;
+    }
+
     if (now - last_hr_tick >= pdMS_TO_TICKS(1000)) {
       last_hr_tick = now;
       heart_rate = (uint8_t)(60 + ((sample_idx / PPG_SAMPLE_RATE_HZ) % 21));
       ble_gatts_chr_updated(hr_chr_handle);
     }
 
-    if (sample_idx >= PPG_SNAPSHOT_SAMPLES) {
-      snapshot->end_ms = (uint32_t)(now * portTICK_PERIOD_MS);
-      ppg_ring_release_write();
-      snapshot = NULL;
-    }
 
     vTaskDelay(pdMS_TO_TICKS(1000 / PPG_SAMPLE_RATE_HZ));
   }

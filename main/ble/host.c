@@ -4,13 +4,20 @@
 #include <nimble/nimble_port.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <string.h>
 
 #include "common.h"
 #include "ble/host.h"
 #include "ble/gatt.h"
 #include "ble/gap.h"
+#include "nimble/nimble_port_freertos.h"
 
 static const char tag[] = APP_TAG "-ble";
+
+const char device_name[] = "SomaSafe Device";
+const uint8_t device_name_len = strlen(device_name);
+const char device_short_name[] = "PPG";
+const uint8_t device_short_name_lenght = strlen(device_short_name);
 
 static void on_stack_reset(int reason) {
   ESP_LOGI(tag, "NimBLE stack reset with reason %d", reason);
@@ -52,6 +59,8 @@ void ble_task(void *param) {
 
   ESP_LOGI(tag, "starting NimBLE stack");
   nimble_port_run();
+
+  nimble_port_freertos_deinit();
 
   ESP_LOGE(tag, "nimble port task exited unexpectedly");
   esp_restart();

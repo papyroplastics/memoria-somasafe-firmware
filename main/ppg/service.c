@@ -4,14 +4,11 @@
 #include <host/ble_att.h>
 
 #include "common.h"
+#include "ble/gatt.h"
 #include "ppg/service.h"
 #include "ppg/sensor.h"
 
 static const char tag[] = APP_TAG "-ble-service";
-
-const ble_uuid16_t hr_svc_uuid = BLE_UUID16_INIT(0x180D);
-const ble_uuid16_t hr_chr_uuid = BLE_UUID16_INIT(0x2A37);
-uint16_t hr_chr_handle;
 
 int hr_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     struct ble_gatt_access_ctxt *ctxt, void *arg) {

@@ -4,8 +4,8 @@
 #include <stdint.h>
 
 int ble_gap_task_prepare(void);
-int ble_gap_advert_config();
-int ble_gap_advert_start();
+int ble_gap_advert_config(void);
+int ble_gap_advert_start(void);
 int ble_gap_advert_stop(void);
 
 uint16_t ble_gap_get_conn_handle(void);

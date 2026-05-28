@@ -16,26 +16,35 @@
 
 static const char tag[] = APP_TAG "-gatt";
 
-int noop_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
-    struct ble_gatt_access_ctxt *ctxt, void *arg) {
-  (void)conn_handle;
-  (void)attr_handle;
+const ble_uuid16_t hr_svc_uuid = BLE_UUID16_INIT(0x180D);
 
-  char *chr_name = arg;
-  ESP_LOGE(tag, "illegal acces on inoperable %s chr with code: %d", chr_name, ctxt->op);
+uint16_t hr_chr_handle;
+const ble_uuid16_t hr_chr_uuid = BLE_UUID16_INIT(0x2A37);
 
-  switch (ctxt->op) {
-    case BLE_GATT_ACCESS_OP_READ_CHR:
-    case BLE_GATT_ACCESS_OP_READ_DSC:
-      return BLE_ATT_ERR_READ_NOT_PERMITTED;
-    case BLE_GATT_ACCESS_OP_WRITE_CHR:
-    case BLE_GATT_ACCESS_OP_WRITE_DSC:
-      return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
-  }
+const ble_uuid128_t ml_svc_uuid = BLE_UUID128_INIT(
+    0x38, 0x27, 0x43, 0xd4, 0xda, 0xb7, 0x43, 0xfe,
+    0x92, 0x24, 0x43, 0x75, 0x40, 0x38, 0x52, 0xa4,
+);
 
-  return BLE_ATT_ERR_UNLIKELY;
-}
+uint16_t ml_results_chr_handle;
+const ble_uuid128_t ml_results_chr_uuid = BLE_UUID128_INIT(
+    0x54, 0x3c, 0xc2, 0x5a, 0x71, 0x1f, 0x4d, 0xfa,
+    0x9c, 0x4b, 0xc1, 0x4f, 0x86, 0xd0, 0x28, 0x72
+);
+uint16_t ml_errors_chr_handle;
+const ble_uuid128_t ml_errors_chr_uuid = BLE_UUID128_INIT(
+    0x0e, 0x33, 0x1f, 0xcf, 0x7a, 0x8a, 0x42, 0xc6,
+    0xa5, 0x6e, 0x25, 0x5a, 0x42, 0x8c, 0x8b, 0x9c
+);
 
+const ble_uuid16_t svc_uuid16[] = { hr_svc_uuid };
+const uint8_t svc_uuid16_cnt = sizeof(svc_uuid16) / sizeof(*svc_uuid16);
+
+const ble_uuid128_t svc_uuid128[] = { ml_svc_uuid };
+const uint8_t svc_uuid128_cnt = sizeof(svc_uuid128) / sizeof(*svc_uuid128);
+
+static int noop_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *ctxt, void *arg);
 
 // clang-format off
 static struct ble_gatt_svc_def gatt_svcs[] = {
@@ -89,6 +98,26 @@ static struct ble_gatt_svc_def gatt_svcs[] = {
   {0},
 };
 // clang-format on
+
+static int noop_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *ctxt, void *arg) {
+  (void)conn_handle;
+  (void)attr_handle;
+
+  char *chr_name = arg;
+  ESP_LOGE(tag, "illegal acces on inoperable %s chr with code: %d", chr_name, ctxt->op);
+
+  switch (ctxt->op) {
+    case BLE_GATT_ACCESS_OP_READ_CHR:
+    case BLE_GATT_ACCESS_OP_READ_DSC:
+      return BLE_ATT_ERR_READ_NOT_PERMITTED;
+    case BLE_GATT_ACCESS_OP_WRITE_CHR:
+    case BLE_GATT_ACCESS_OP_WRITE_DSC:
+      return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
+  }
+
+  return BLE_ATT_ERR_UNLIKELY;
+}
 
 int ble_gatt_task_prepare(void) {
   ble_svc_gatt_init();

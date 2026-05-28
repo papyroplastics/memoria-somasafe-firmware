@@ -5,31 +5,14 @@
 #include <host/ble_hs.h>
 
 #include "common.h"
-#include "ml/service.h"
 #include "ble/gap.h"
 #include "ble/gatt.h"
+#include "ml/service.h"
 #include "ble/client_buffer.h"
 
 static const char tag[] = APP_TAG "-ml-service";
 
 struct ble_client_buffer ml_model_buffer = BLE_CLIENT_BUFFER_INIT;
-
-const ble_uuid128_t ml_svc_uuid = BLE_UUID128_INIT(
-    0x38, 0x27, 0x43, 0xd4, 0xda, 0xb7, 0x43, 0xfe,
-    0x92, 0x24, 0x43, 0x75, 0x40, 0x38, 0x52, 0xa4,
-);
-
-const ble_uuid128_t ml_results_chr_uuid = BLE_UUID128_INIT(
-    0x54, 0x3c, 0xc2, 0x5a, 0x71, 0x1f, 0x4d, 0xfa,
-    0x9c, 0x4b, 0xc1, 0x4f, 0x86, 0xd0, 0x28, 0x72
-);
-const ble_uuid128_t ml_errors_chr_uuid = BLE_UUID128_INIT(
-    0x0e, 0x33, 0x1f, 0xcf, 0x7a, 0x8a, 0x42, 0xc6,
-    0xa5, 0x6e, 0x25, 0x5a, 0x42, 0x8c, 0x8b, 0x9c
-);
-
-uint16_t ml_results_chr_handle;
-uint16_t ml_errors_chr_handle;
 
 #define ML_RESULTS_MAX_PAYLOAD 256
 static uint8_t ml_results_payload[ML_RESULTS_MAX_PAYLOAD];
