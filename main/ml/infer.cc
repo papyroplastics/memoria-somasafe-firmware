@@ -19,7 +19,7 @@
 #include "ml/infer.h"
 #include "ppg/sensor.h"
 
-static const char tag[] = APP_TAG "-infer";
+static const char tag[] = APP_TAG "-ml-infer";
 
 static tflite::MicroMutableOpResolver<2> resolver;
 
@@ -115,14 +115,14 @@ void ml_task(void *param) {
       continue;
     }
 
-    struct ppg_snapshot *snapshot = NULL;
-    if (!ppg_ring_acquire_read(&snapshot)) {
+    struct ppg_slice *slice = NULL;
+    if (!ppg_ring_acquire_read(&slice)) {
       ble_client_buffer_unlock(&ml_model_buffer);
       vTaskDelay(pdMS_TO_TICKS(100));
       continue;
     }
 
-    size_t sample_count = snapshot->sample_count;
+    size_t sample_count = slice->sample_count;
 
     if (sample_count == 0) {
       ppg_ring_release_read();
@@ -140,7 +140,7 @@ void ml_task(void *param) {
       continue;
     }
 
-    ml_send_snapshot_start(snapshot->start_ms, snapshot->end_ms);
+    ml_send_slice_start(slice->start_ms, slice->end_ms);
 
     size_t offset = 0;
     while (offset < sample_count) {
@@ -152,7 +152,7 @@ void ml_task(void *param) {
       for (int i = 0; i < batch_size; i++) {
         int8_t value = input_tensor->params.zero_point;
         if ((size_t)i < batch) {
-          value = quantize_value(snapshot->samples[offset + (size_t)i], input_tensor);
+          value = quantize_value(slice->samples[offset + (size_t)i], input_tensor);
         }
         input_tensor->data.int8[i] = value;
       }

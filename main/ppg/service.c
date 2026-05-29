@@ -8,7 +8,7 @@
 #include "ppg/service.h"
 #include "ppg/sensor.h"
 
-static const char tag[] = APP_TAG "-ble-service";
+static const char tag[] = APP_TAG "-ppg-service";
 
 int hr_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     struct ble_gatt_access_ctxt *ctxt, void *arg) {

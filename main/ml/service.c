@@ -19,7 +19,7 @@ static uint8_t ml_results_payload[ML_RESULTS_MAX_PAYLOAD];
 static uint16_t ml_results_len = 0;
 static uint8_t ml_last_error = 0;
 
-void ml_send_snapshot_start(uint32_t start_ms, uint32_t end_ms) {
+void ml_send_slice_start(uint32_t start_ms, uint32_t end_ms) {
   uint8_t payload[9];
   payload[0] = 0;
   memcpy(payload + 1, &start_ms, sizeof(start_ms));

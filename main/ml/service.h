@@ -24,7 +24,7 @@ int ml_errors_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     struct ble_gatt_access_ctxt *ctxt, void *arg);
 
 void ml_report_error(enum ml_error_code code);
-void ml_send_snapshot_start(uint32_t start_ms, uint32_t end_ms);
+void ml_send_slice_start(uint32_t start_ms, uint32_t end_ms);
 void ml_send_results(const int8_t *inputs, const int8_t *outputs, size_t count);
 
 #ifdef __cplusplus
