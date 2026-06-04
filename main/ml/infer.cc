@@ -23,7 +23,7 @@ static const char tag[] = APP_TAG "-ml-infer";
 
 static tflite::MicroMutableOpResolver<2> resolver;
 
-static const uint16_t tensor_arena_size = 16384;
+static const uint16_t tensor_arena_size = 1024 * 16;
 static uint8_t tensor_arena[tensor_arena_size];
 
 static const tflite::Model *model;

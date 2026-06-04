@@ -16,6 +16,8 @@ idf_component_register(
     nvs_flash
     mbedtls
     esp-tls
+    esp_driver_uart
+    esp_driver_gpio
 
   INCLUDE_DIRS
     "."

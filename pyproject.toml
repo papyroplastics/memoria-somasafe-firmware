@@ -9,6 +9,7 @@ dependencies = [
     "ai-edge-litert==2.1.5",
     "matplotlib>=3.10.9",
     "pyqt6==6.11.*",
+    "pyserial>=3.5",
 ]
 
 [dependency-groups]
