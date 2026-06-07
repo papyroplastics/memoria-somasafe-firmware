@@ -3,15 +3,32 @@ import serial
 import pathlib
 import time
 
-if len(sys.argv) != 2:
-    print(f"USE: python {sys.argv[0]} <serial>", file=sys.stderr)
+import numpy as np
+
+if len(sys.argv) < 3:
+    print(f"USE: python {sys.argv[0]} <serial> <feature_dir>", file=sys.stderr)
+    print(f"  feature_dir: directory containing features.npy and labels.npy", file=sys.stderr)
     exit(1)
 
 device = pathlib.Path(sys.argv[1])
+feature_dir = pathlib.Path(sys.argv[2])
 
 if not device.exists():
-    print(f"ERROR: path {str(device)} does not exist", file=sys.stderr)
+    print(f"ERROR: {device} does not exist", file=sys.stderr)
     exit(1)
+
+features_path = feature_dir / 'features.npy'
+labels_path = feature_dir / 'labels.npy'
+
+if not features_path.exists():
+    print(f"ERROR: features.npy not found in {feature_dir}", file=sys.stderr)
+    exit(1)
+
+features = np.load(features_path).astype(np.float32)  # (N, 17)
+labels = np.load(labels_path).astype(np.float32)      # (N, 1)
+
+print(f"Loaded {len(features)} windows ({features.shape[1]} features each, "
+      f"{int(labels.sum())} anomalous)")
 
 port = serial.Serial(
     port=str(device),
@@ -24,20 +41,11 @@ port = serial.Serial(
 
 time.sleep(0.1)
 
-flushed_data = b''
+for i, window in enumerate(features):
+    port.write(window.tobytes())
+    if (i + 1) % 1000 == 0:
+        port.flush()
+        print(f"Sent {i + 1}/{len(features)} windows")
 
-while True:
-    r_bytes = port.read()
-    if len(r_bytes) == 0:
-        break
-    flushed_data += r_bytes
-
-print(f"flushed data: {flushed_data}")
-
-w_bytes = b'Hello, World!\n'
-port.write(w_bytes)
 port.flush()
-
-r_bytes = port.read(len(w_bytes))
-print(f"read: {r_bytes}")
-
+print(f"Done — sent {len(features)} feature vectors.")

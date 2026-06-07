@@ -84,7 +84,7 @@ void ml_task(void *param) {
 
   if (
     resolver.AddFullyConnected() != kTfLiteOk ||
-    resolver.AddTanh() != kTfLiteOk
+    resolver.AddRelu() != kTfLiteOk
   ) {
     ESP_LOGE(tag, "required tflite operation not suported");
     esp_restart();
@@ -132,7 +132,8 @@ void ml_task(void *param) {
     }
 
     int batch_size = input_tensor->dims->data[0];
-    if (batch_size <= 0 || output_tensor->dims->data[0] != batch_size) {
+    int n_features = (input_tensor->dims->size >= 2) ? input_tensor->dims->data[1] : 1;
+    if (batch_size <= 0 || n_features <= 0 || output_tensor->dims->data[0] != batch_size) {
       ppg_ring_release_read();
       ble_client_buffer_unlock(&ml_model_buffer);
       ml_report_error(ML_ERR_INVALID_SHAPE);
@@ -150,11 +151,13 @@ void ml_task(void *param) {
       }
 
       for (int i = 0; i < batch_size; i++) {
-        int8_t value = input_tensor->params.zero_point;
-        if ((size_t)i < batch) {
-          value = quantize_value(slice->samples[offset + (size_t)i], input_tensor);
+        for (int j = 0; j < n_features; j++) {
+          int8_t value = input_tensor->params.zero_point;
+          if ((size_t)i < batch) {
+            value = quantize_value(slice->samples[(offset + (size_t)i) * n_features + j], input_tensor);
+          }
+          input_tensor->data.int8[i * n_features + j] = value;
         }
-        input_tensor->data.int8[i] = value;
       }
 
       TfLiteStatus invoke_status = interpreter->Invoke();
