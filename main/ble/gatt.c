@@ -11,15 +11,24 @@
 #include "ble/gap.h"
 #include "ble/gatt.h"
 #include "ble/client_buffer.h"
-#include "ppg/service.h"
 #include "ml/service.h"
 
 static const char tag[] = APP_TAG "-gatt";
 
-const ble_uuid16_t hr_svc_uuid = BLE_UUID16_INIT(0x180D);
+// PPG service — custom 128-bit UUID (not the standard HRS)
+// UUID: c7e4f210-3a8b-4d56-9c2f-1e7b0a5d3c8e
+const ble_uuid128_t ppg_svc_uuid = BLE_UUID128_INIT(
+    0x8e, 0x3c, 0x5d, 0x0a, 0x7b, 0x1e, 0x2f, 0x9c,
+    0x56, 0x4d, 0x8b, 0x3a, 0x10, 0xf2, 0xe4, 0xc7,
+);
 
-uint16_t hr_chr_handle;
-const ble_uuid16_t hr_chr_uuid = BLE_UUID16_INIT(0x2A37);
+// PPG data characteristic — notify-only, raw BVP+ACC floats
+// UUID: b8e9a347-5c12-4f89-a7d3-2e1f6b0c4a9d
+uint16_t ppg_chr_handle;
+const ble_uuid128_t ppg_chr_uuid = BLE_UUID128_INIT(
+    0x9d, 0x4a, 0x0c, 0x6b, 0x1f, 0x2e, 0xd3, 0xa7,
+    0x89, 0x4f, 0x12, 0x5c, 0x47, 0xa3, 0xe9, 0xb8,
+);
 
 const ble_uuid128_t ml_svc_uuid = BLE_UUID128_INIT(
     0x38, 0x27, 0x43, 0xd4, 0xda, 0xb7, 0x43, 0xfe,
@@ -37,11 +46,12 @@ const ble_uuid128_t ml_errors_chr_uuid = BLE_UUID128_INIT(
     0xa5, 0x6e, 0x25, 0x5a, 0x42, 0x8c, 0x8b, 0x9c
 );
 
-const ble_uuid16_t svc_uuid16[] = { hr_svc_uuid };
-const uint8_t svc_uuid16_cnt = sizeof(svc_uuid16) / sizeof(*svc_uuid16);
+// No 16-bit service UUIDs remain; keep an empty array so gap.c compiles unchanged.
+const ble_uuid16_t svc_uuid16[1] = { BLE_UUID16_INIT(0x0000) };
+const uint8_t      svc_uuid16_cnt = 0;
 
-const ble_uuid128_t svc_uuid128[] = { ml_svc_uuid };
-const uint8_t svc_uuid128_cnt = sizeof(svc_uuid128) / sizeof(*svc_uuid128);
+const ble_uuid128_t svc_uuid128[] = { ppg_svc_uuid, ml_svc_uuid };
+const uint8_t       svc_uuid128_cnt = sizeof(svc_uuid128) / sizeof(*svc_uuid128);
 
 static int noop_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     struct ble_gatt_access_ctxt *ctxt, void *arg);
@@ -50,17 +60,17 @@ static int noop_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
 static struct ble_gatt_svc_def gatt_svcs[] = {
   {
     .type = BLE_GATT_SVC_TYPE_PRIMARY,
-    .uuid = &hr_svc_uuid.u,
+    .uuid = &ppg_svc_uuid.u,
     .includes = NULL,
     .characteristics = (struct ble_gatt_chr_def[]) {
       {
-        .uuid = &hr_chr_uuid.u,
-        .access_cb = hr_chr_access_cb,
-        .arg = NULL,
+        .uuid = &ppg_chr_uuid.u,
+        .access_cb = noop_chr_access_cb,
+        .arg = "ppg data",
         .descriptors = NULL,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .flags = BLE_GATT_CHR_F_NOTIFY,
         .min_key_size = 0,
-        .val_handle = &hr_chr_handle,
+        .val_handle = &ppg_chr_handle,
         .cpfd = 0,
       },
       {0}
@@ -105,7 +115,7 @@ static int noop_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
   (void)attr_handle;
 
   char *chr_name = arg;
-  ESP_LOGE(tag, "illegal acces on inoperable %s chr with code: %d", chr_name, ctxt->op);
+  ESP_LOGE(tag, "illegal access on inoperable %s chr with code: %d", chr_name, ctxt->op);
 
   switch (ctxt->op) {
     case BLE_GATT_ACCESS_OP_READ_CHR:
@@ -144,4 +154,3 @@ int ble_gatt_notify_chr(uint16_t chr_handle, const uint8_t *payload, uint16_t pa
 
   return 0;
 }
-

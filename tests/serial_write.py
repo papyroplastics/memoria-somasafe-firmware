@@ -1,51 +1,99 @@
 import sys
-import serial
-import pathlib
 import time
+import argparse
+import pathlib
 
 import numpy as np
+import serial
 
-if len(sys.argv) < 3:
-    print(f"USE: python {sys.argv[0]} <serial> <feature_dir>", file=sys.stderr)
-    print(f"  feature_dir: directory containing features.npy and labels.npy", file=sys.stderr)
-    exit(1)
+# Each cycle: 2 PPG samples + 1 ACC sample sent at this rate.
+# PPG effective rate = SEND_RATE_HZ * 2 (64 Hz at default)
+# ACC effective rate = SEND_RATE_HZ     (32 Hz at default)
+DEFAULT_RATE_HZ = 32
 
-device = pathlib.Path(sys.argv[1])
-feature_dir = pathlib.Path(sys.argv[2])
 
-if not device.exists():
-    print(f"ERROR: {device} does not exist", file=sys.stderr)
-    exit(1)
+def main():
+    parser = argparse.ArgumentParser(
+        description="Stream raw anomalous PPG/ACC data over serial to the ESP32 test harness.")
+    parser.add_argument('serial',        type=pathlib.Path, help="Serial device (e.g. /dev/ttyUSB0)")
+    parser.add_argument('anomalous_dir', type=pathlib.Path,
+                        help="anomalous-signals directory (contains S{id}/bvp.npy)")
+    parser.add_argument('subjects_dir',  type=pathlib.Path,
+                        help="subject-signals directory (contains S{id}/acc_mag.npy)")
+    parser.add_argument('--rate', type=float, default=DEFAULT_RATE_HZ,
+                        help=f"Cycle rate in Hz (default {DEFAULT_RATE_HZ}). "
+                             "One cycle = 2 PPG floats + 1 ACC float.")
+    args = parser.parse_args()
 
-features_path = feature_dir / 'features.npy'
-labels_path = feature_dir / 'labels.npy'
+    if not args.serial.exists():
+        print(f"ERROR: {args.serial} does not exist", file=sys.stderr)
+        sys.exit(1)
+    if not args.anomalous_dir.is_dir():
+        print(f"ERROR: {args.anomalous_dir} is not a directory", file=sys.stderr)
+        sys.exit(1)
+    if not args.subjects_dir.is_dir():
+        print(f"ERROR: {args.subjects_dir} is not a directory", file=sys.stderr)
+        sys.exit(1)
 
-if not features_path.exists():
-    print(f"ERROR: features.npy not found in {feature_dir}", file=sys.stderr)
-    exit(1)
+    subject_dirs = sorted(args.anomalous_dir.glob('S*'))
+    if not subject_dirs:
+        print(f"ERROR: no subject directories found in {args.anomalous_dir}", file=sys.stderr)
+        sys.exit(1)
 
-features = np.load(features_path).astype(np.float32)  # (N, 17)
-labels = np.load(labels_path).astype(np.float32)      # (N, 1)
+    port = serial.Serial(
+        port=str(args.serial),
+        baudrate=115200,
+        bytesize=serial.EIGHTBITS,
+        parity=serial.PARITY_NONE,
+        stopbits=serial.STOPBITS_ONE,
+        timeout=1,
+    )
+    time.sleep(0.1)
 
-print(f"Loaded {len(features)} windows ({features.shape[1]} features each, "
-      f"{int(labels.sum())} anomalous)")
+    cycle_period = 1.0 / args.rate
 
-port = serial.Serial(
-    port=str(device),
-    baudrate=115200,
-    bytesize=serial.EIGHTBITS,
-    parity=serial.PARITY_NONE,
-    stopbits=serial.STOPBITS_ONE,
-    timeout=1,
-)
+    for subject_dir in subject_dirs:
+        sid = subject_dir.name
+        bvp_path = subject_dir / 'bvp.npy'
+        acc_path  = args.subjects_dir / sid / 'acc_mag.npy'
 
-time.sleep(0.1)
+        if not bvp_path.exists():
+            print(f"WARNING: {bvp_path} not found, skipping {sid}", file=sys.stderr)
+            continue
+        if not acc_path.exists():
+            print(f"WARNING: {acc_path} not found, skipping {sid}", file=sys.stderr)
+            continue
 
-for i, window in enumerate(features):
-    port.write(window.tobytes())
-    if (i + 1) % 1000 == 0:
-        port.flush()
-        print(f"Sent {i + 1}/{len(features)} windows")
+        bvp = np.load(bvp_path).astype(np.float32)
+        acc = np.load(acc_path).astype(np.float32)
 
-port.flush()
-print(f"Done — sent {len(features)} feature vectors.")
+        # Each cycle consumes 2 BVP samples and 1 ACC sample
+        n_cycles = min(len(bvp) // 2, len(acc))
+        duration_s = n_cycles / args.rate
+
+        print(f"{sid}: {n_cycles} cycles ({duration_s:.0f}s at {args.rate} Hz)")
+
+        for i in range(n_cycles):
+            t0 = time.monotonic()
+
+            # Interleave as the firmware expects: ppg, ppg, acc
+            data = np.array([bvp[i * 2], bvp[i * 2 + 1], acc[i]], dtype=np.float32)
+            port.write(data.tobytes())
+
+            if (i + 1) % (int(args.rate) * 10) == 0:
+                port.flush()
+                print(f"  {i + 1}/{n_cycles} cycles", end='\r')
+
+            elapsed = time.monotonic() - t0
+            remaining = cycle_period - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+
+        print(f"  {n_cycles}/{n_cycles} cycles — done     ")
+
+    port.flush()
+    print("All subjects sent.")
+
+
+if __name__ == '__main__':
+    main()

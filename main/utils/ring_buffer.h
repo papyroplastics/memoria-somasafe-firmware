@@ -24,7 +24,7 @@ struct ring_buffer {
 };
 
 // Define a ring buffer and its backing storage statically.
-#define RING_BUFFER_STATIC(name, type, count)        \
+#define RING_BUFFER_STATIC(type, name, count)        \
   static type name##_slices[count];                  \
   static struct ring_buffer name = {                 \
     .mutex = PTHREAD_MUTEX_INITIALIZER,              \

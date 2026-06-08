@@ -1,13 +1,21 @@
-#ifndef BLE_SERVICE_H
-#define BLE_SERVICE_H
+#ifndef PPG_SERVICE_H
+#define PPG_SERVICE_H
 
+#include <stdbool.h>
 #include <stdint.h>
-#include <host/ble_gatt.h>
-#include <host/ble_uuid.h>
 
-int hr_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
-    struct ble_gatt_access_ctxt *ctxt, void *arg);
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-void ble_gatt_hr_chr_update(void);
+// Send one second of raw PPG and ACC data as BLE notifications.
+// window_start: true only for the first call of each 8-second window.
+void ppg_notify_data(const float *ppg, uint16_t ppg_count,
+                     const float *acc, uint16_t acc_count,
+                     bool window_start);
 
-#endif // BLE_SERVICE_H
+#ifdef __cplusplus
+}
+#endif
+
+#endif  // PPG_SERVICE_H
