@@ -4,7 +4,7 @@ BIN := build/somasafe-firmware.bin
 SRC := $(wildcard main/*.c) $(wildcard main/*/*.c)
 HDR := $(wildcard main/*.h) $(wildcard main/*/*.h)
 
-.PHONY: run debug gfb qemu format test
+.PHONY: run debug gfb qemu format
 run:
 	idf.py flash monitor
 
@@ -23,7 +23,4 @@ qemu: ${BIN}
 
 format:
 	clang-format -i ${SRC} ${HDR}
-
-test:
-	uv run tests/load_model.py ../tensorflow-model/models/post-train-opti.tflite
 

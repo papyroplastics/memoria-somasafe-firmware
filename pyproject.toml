@@ -10,6 +10,7 @@ dependencies = [
     "matplotlib>=3.10.9",
     "pyqt6==6.11.*",
     "pyserial>=3.5",
+    "numpy>=2.4.6",
 ]
 
 [dependency-groups]
@@ -20,7 +21,7 @@ dev = [
 [tool.pyrefly]
 python-platform = "linux"
 project-includes = [
-    "tests/*.py",
+    "scripts/*.py",
 ]
 
 [tool.pyrefly.errors]

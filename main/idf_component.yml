@@ -3,3 +3,4 @@ dependencies:
     version: '>=4.1.0'
 
   espressif/esp-tflite-micro: '*'
+  espressif/esp-dsp: '*'
