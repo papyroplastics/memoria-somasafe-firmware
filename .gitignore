@@ -2,6 +2,9 @@ build/
 sdkconfig
 sdkconfig.old
 managed_components/
+
+datasets
+
+__pycache__/
 .venv/
-dependencies.lock
-uv.lock
+venv
