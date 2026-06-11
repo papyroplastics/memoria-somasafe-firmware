@@ -3,6 +3,7 @@
 
 #include <driver/uart.h>
 #include <esp_log.h>
+#include <esp_random.h>
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -38,24 +39,55 @@ static const uart_config_t uart_config = {
   .source_clk = UART_SCLK_DEFAULT,
 };
 
-static float uart_read_float(void) {
-  float value;
-  uint8_t *buf = (uint8_t *)&value;
-  int received = 0;
-  while (received < (int)sizeof(float)) {
+static const uint8_t uart_marker[4] = { 0xAA, 0xBB, 0xCC, 0xDD };
+
+static void uart_read_all(uint8_t *buf, size_t len) {
+  size_t received = 0;
+  while (received < len) {
     int n = uart_read_bytes(UART_PORT, buf + received,
-                            sizeof(float) - received, portMAX_DELAY);
-    if (n > 0) received += n;
+                            len - received, portMAX_DELAY);
+    if (n > 0) received += (size_t)n;
   }
-  return value;
 }
 
-float sensor_get_ppg(void) {
-  return uart_read_float();
+static void uart_write_all(const uint8_t *buf, size_t len) {
+  uart_write_bytes(UART_PORT, buf, len);
 }
 
-float sensor_get_acc(void) {
-  return uart_read_float();
+// Flush stale channel data before streaming: send marker + our nonce, scan
+// the incoming stream for the same marker + nonce echoed back, then echo the
+// host's nonce that follows it.
+static void uart_handshake(void) {
+  uint8_t expect[8];
+  uint32_t nonce = esp_random();
+  memcpy(expect, uart_marker, sizeof(uart_marker));
+  memcpy(expect + sizeof(uart_marker), &nonce, sizeof(nonce));
+
+  uart_write_all(expect, sizeof(expect));
+
+  size_t matched = 0;
+  while (matched < sizeof(expect)) {
+    uint8_t b;
+    uart_read_all(&b, 1);
+    if (b == expect[matched]) matched++;
+    else matched = (b == expect[0]) ? 1 : 0;
+  }
+
+  uint8_t host_nonce[4];
+  uart_read_all(host_nonce, sizeof(host_nonce));
+  uart_write_all(host_nonce, sizeof(host_nonce));
+
+  ESP_LOGI(tag, "UART handshake complete");
+}
+
+// Read one sample cycle (2 PPG + 1 ACC floats + postfix byte) and ack it by
+// echoing the postfix byte back.
+static void get_sample(float ppg[2], float acc[1]) {
+  uint8_t buf[3 * sizeof(float) + 1];
+  uart_read_all(buf, sizeof(buf));
+  memcpy(ppg, buf, 2 * sizeof(float));
+  memcpy(acc, buf + 2 * sizeof(float), sizeof(float));
+  uart_write_all(&buf[sizeof(buf) - 1], 1);
 }
 
 void ppg_task(void *param) {
@@ -69,22 +101,26 @@ void ppg_task(void *param) {
     esp_restart();
   }
 
+  uart_handshake();
+
   struct ppg_slice *slice = NULL;
   uint16_t ppg_idx = 0;
   uint16_t acc_idx = 0;
+  uint32_t next_sequence_n = 0;
 
   for (;;) {
     if (slice == NULL) {
       slice = ring_buffer_acquire_write(&ppg_ring);
       ppg_idx = 0;
       acc_idx = 0;
+      slice->sequence_n = next_sequence_n++;
       slice->start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
     }
 
     // Each cycle: 2 PPG samples at 64 Hz, 1 ACC sample at 32 Hz
-    slice->ppg[ppg_idx++] = sensor_get_ppg();
-    slice->ppg[ppg_idx++] = sensor_get_ppg();
-    slice->acc[acc_idx++] = sensor_get_acc();
+    get_sample(&slice->ppg[ppg_idx], &slice->acc[acc_idx]);
+    ppg_idx += 2;
+    acc_idx += 1;
 
     // Every second (64 PPG samples), notify the connected client
     if (ppg_idx % PPG_SAMPLE_RATE == 0) {
@@ -94,7 +130,7 @@ void ppg_task(void *param) {
       ppg_notify_data(
         &slice->ppg[sec_ppg], PPG_SAMPLE_RATE,
         &slice->acc[sec_acc], PPG_ACC_RATE,
-        window_start
+        window_start, slice->sequence_n
       );
     }
 

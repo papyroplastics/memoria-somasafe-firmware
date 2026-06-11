@@ -3,6 +3,7 @@
 #include <esp_log.h>
 #include <host/ble_hs.h>
 #include <host/ble_att.h>
+#include <os/os_mbuf.h>
 
 #include "common.h"
 #include "ble/gap.h"
@@ -12,21 +13,16 @@
 
 static const char tag[] = APP_TAG "-ppg-service";
 
-// Max ATT notification payload we allocate on the stack.
-// BLE 4.2+ can negotiate MTU up to 517; this covers most real-world cases.
-#define PKT_BUF_MAX 512
-
 void ppg_notify_data(const float *ppg, uint16_t ppg_count,
                      const float *acc, uint16_t acc_count,
-                     bool window_start) {
+                     bool window_start, uint32_t sequence_n) {
   uint16_t conn = ble_gap_get_conn_handle();
   if (conn == BLE_HS_CONN_HANDLE_NONE) return;
 
   uint16_t mtu = ble_att_mtu(conn);
-  if (mtu <= 3) return;
+  if (mtu < BLE_ATT_MTU_DFLT) return;
 
   uint16_t max_payload = mtu - 3;
-  if (max_payload > PKT_BUF_MAX) max_payload = PKT_BUF_MAX;
 
   const uint32_t ppg_bytes  = ppg_count * sizeof(float);
   const uint32_t acc_bytes  = acc_count * sizeof(float);
@@ -35,47 +31,59 @@ void ppg_notify_data(const float *ppg, uint16_t ppg_count,
   bool is_start = window_start;
   uint32_t sent = 0;
 
-  static uint8_t pkt[PKT_BUF_MAX];
-
   while (sent < data_total) {
-    uint8_t  hdr_len = is_start ? 2u : 1u;
-    uint16_t space   = max_payload - hdr_len;
-    space = (space / sizeof(float)) * sizeof(float);  // align to float boundary
-    if (space == 0) {
-      ESP_LOGE(tag, "MTU too small for PPG notification");
-      return;
+    // Header: type byte; start packets also carry slice seconds + sequence_n
+    uint8_t hdr[6];
+    uint8_t hdr_len;
+    if (is_start) {
+      hdr[0] = 1u;
+      hdr[1] = PPG_SLICE_SECONDS;
+      memcpy(hdr + 2, &sequence_n, sizeof(sequence_n));
+      hdr_len = 6u;
+    } else {
+      hdr[0] = 0u;
+      hdr_len = 1u;
     }
+
+    uint16_t space = max_payload - hdr_len;
+    space = (space / sizeof(float)) * sizeof(float);  // align to float boundary
 
     uint16_t chunk = (uint16_t)((data_total - sent < space)
                                   ? (data_total - sent) : space);
 
-    pkt[0] = is_start ? 1u : 0u;
-    if (is_start) {
-      pkt[1]    = PPG_SLICE_SECONDS;
-      is_start  = false;
+    struct os_mbuf *om = os_msys_get_pkthdr(hdr_len + chunk, 0);
+    if (om == NULL) {
+      ESP_LOGE(tag, "failed to allocate notify mbuf");
+      return;
     }
 
-    // Copy from the logical flat buffer [ppg_bytes | acc_bytes]
-    uint8_t *dst   = pkt + hdr_len;
-    uint32_t remain = chunk;
+    int err = os_mbuf_append(om, hdr, hdr_len);
 
-    if (sent < ppg_bytes && remain > 0) {
+    // Append from the logical flat stream [ppg_bytes | acc_bytes]
+    uint32_t remain = chunk;
+    if (err == 0 && sent < ppg_bytes && remain > 0) {
       uint32_t n = ppg_bytes - sent;
       if (n > remain) n = remain;
-      memcpy(dst, (const uint8_t *)ppg + sent, n);
-      dst    += n;
+      err = os_mbuf_append(om, (const uint8_t *)ppg + sent, n);
       remain -= n;
     }
-    if (remain > 0) {
+    if (err == 0 && remain > 0) {
       uint32_t acc_offset = (sent >= ppg_bytes) ? (sent - ppg_bytes) : 0u;
-      memcpy(dst, (const uint8_t *)acc + acc_offset, remain);
+      err = os_mbuf_append(om, (const uint8_t *)acc + acc_offset, remain);
     }
 
-    int err = ble_gatt_notify_chr(ppg_chr_handle, pkt, hdr_len + chunk);
+    if (err != 0) {
+      ESP_LOGE(tag, "mbuf append failed");
+      os_mbuf_free_chain(om);
+      return;
+    }
+
+    err = ble_gatts_notify_custom(conn, ppg_chr_handle, om);
     if (err != 0) {
       ESP_LOGW(tag, "notify failed: %d", err);
     }
 
+    is_start = false;
     sent += chunk;
   }
 }

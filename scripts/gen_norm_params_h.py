@@ -1,22 +1,6 @@
-#!/usr/bin/env python3
-"""Generate ml_norm_params.h from a feature_stats.npy file.
-
-feature_stats.npy must have shape (2, N_FEATURES) where row 0 is per-feature
-means and row 1 is per-feature standard deviations (as saved by get-dataset.py).
-
-Usage:
-    python gen_norm_params_h.py <feature_stats.npy> <output.h>
-
-Example:
-    python firmware/scripts/gen_norm_params_h.py \\
-        backend/datasets/feature-anomaly/feature_stats.npy \\
-        firmware/main/ml/norm_params.h
-"""
-
 import argparse
 import numpy as np
 from pathlib import Path
-
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("stats_npy", type=Path, help="Path to feature_stats.npy")

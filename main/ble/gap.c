@@ -1,5 +1,7 @@
 #include <host/ble_gap.h>
 #include <services/gap/ble_svc_gap.h>
+#include <nimble/hci_common.h>
+#include <os/os_mbuf.h>
 
 #include "common.h"
 #include "ble/gap.h"
@@ -203,7 +205,7 @@ int ble_gap_extended_advert_config(void) {
     .le_role_is_present = 1,
   };
 
-  struct os_mbuf *adv_data_buf = os_msys_get_pkthdr(BLE_HS_ADV_MAX_FIELD_SZ, 0);
+  struct os_mbuf *adv_data_buf = os_msys_get_pkthdr(BLE_HCI_MAX_EXT_ADV_DATA_LEN, 0);
   if (adv_data_buf == NULL) {
     ESP_LOGE(tag, "failed to allocate mbuf for adv data with error code %d", err);
     return 1;

@@ -1,6 +1,8 @@
 import sys
 import asyncio
+import argparse
 import pathlib
+
 import numpy as np
 import matplotlib.pyplot as plt
 from ai_edge_litert.interpreter import Interpreter
@@ -28,27 +30,33 @@ ML_ERROR_NAMES = {
     5: "INVALID_SHAPE",
 }
 
-if len(sys.argv) != 2:
-    print(f"USE: python {sys.argv[0]} <model file>", file=sys.stderr)
-    exit(1)
 
-model_file = pathlib.Path(sys.argv[1])
-model_bytes = model_file.read_bytes()
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Upload a .tflite model over BLE and compare on-device "
+                    "inference results against the feature dataset.")
+    parser.add_argument('model', type=pathlib.Path, help=".tflite model file")
+    parser.add_argument('datasets_dir', type=pathlib.Path,
+                        help="datasets/ directory (contains feature-anomaly/)")
+    parser.add_argument('--subject', type=int, default=1,
+                        help="Subject id being streamed by serial_write.py (default 1)")
+    parser.add_argument('--results', type=int, default=10,
+                        help="Number of inference results to receive before stopping (default 10)")
+    return parser.parse_args()
 
-tflite_model = Interpreter(model_content=model_bytes)
 
-in_quant  = tflite_model.get_input_details()[0]['quantization_parameters']
-in_scale, in_zero_point = in_quant['scales'][0], in_quant['zero_points'][0]
+async def upload_and_collect(args, model_bytes, expected_len):
+    """Connect, upload the model and collect args.results inference results.
 
-out_quant  = tflite_model.get_output_details()[0]['quantization_parameters']
-out_scale, out_zero_point = out_quant['scales'][0], out_quant['zero_points'][0]
-
-
-async def main():
+    Returns a list of (sequence_n, raw_bytes) where raw_bytes is the
+    reassembled [input | score] int8 stream.
+    """
     device = await BleakScanner.find_device_by_name(DEV_NAME)
     if device is None:
         print(f"Device \"{DEV_NAME}\" not found", file=sys.stderr)
-        return
+        exit(1)
+
+    results = []
 
     async with BleakClient(device) as client:
         print(f"Connection stablised with {client.name} address {client.address}", file=sys.stderr)
@@ -128,38 +136,28 @@ async def main():
             print("Model readback mismatch", file=sys.stderr)
             exit(1)
 
-        # Snapshot accumulation state
-        snapshot_done   = asyncio.Event()
-        snapshot_inputs  = []
-        snapshot_outputs = []
-        snapshot_start_ms = 0
-        snapshot_end_ms   = 0
-        collecting = False
+        done = asyncio.Event()
+        sequence_n = None
+        reassembly = bytearray()
 
         def on_ml_results(_, data: bytearray):
-            nonlocal collecting, snapshot_start_ms, snapshot_end_ms
-            msg_type = data[0]
-            if msg_type == 0:
-                if collecting and snapshot_inputs:
-                    # Second boundary: first snapshot is complete
-                    snapshot_done.set()
-                    return
-                # First boundary: record metadata and start collecting
-                snapshot_start_ms = int.from_bytes(data[1:5], byteorder='little')
-                snapshot_end_ms   = int.from_bytes(data[5:9], byteorder='little')
-                snapshot_inputs.clear()
-                snapshot_outputs.clear()
-                collecting = True
-            elif msg_type == 1 and collecting and not snapshot_done.is_set():
-                n = (len(data) - 1) // 2
-                snapshot_inputs.extend(
-                    int.from_bytes([b], byteorder='little', signed=True)
-                    for b in data[1:1 + n]
-                )
-                snapshot_outputs.extend(
-                    int.from_bytes([b], byteorder='little', signed=True)
-                    for b in data[1 + n:1 + 2 * n]
-                )
+            nonlocal sequence_n, reassembly
+            if done.is_set():
+                return
+            if data[0] == 1:
+                if sequence_n is not None:
+                    print(f"WARNING: dropped incomplete result for sequence {sequence_n}", file=sys.stderr)
+                sequence_n = int.from_bytes(data[1:5], byteorder='little')
+                reassembly = bytearray(data[5:])
+            elif sequence_n is not None:
+                reassembly.extend(data[1:])
+
+            if sequence_n is not None and len(reassembly) >= expected_len:
+                results.append((sequence_n, bytes(reassembly[:expected_len])))
+                print(f"Received result {len(results)}/{args.results} (sequence {sequence_n})", file=sys.stderr)
+                sequence_n = None
+                if len(results) >= args.results:
+                    done.set()
 
         def on_ml_error(_, data: bytearray):
             code = data[0]
@@ -170,34 +168,103 @@ async def main():
         await client.start_notify(ml_errors_chr, on_ml_error)
 
         await client.write_gatt_char(model_state_chr, bytes([BUFFER_STATE_READY]), response=True)
-        print("Model set to ready, waiting for a complete snapshot...", file=sys.stderr)
+        print(f"Model set to ready, waiting for {args.results} results...", file=sys.stderr)
 
-        await snapshot_done.wait()
-        print(
-            f"Snapshot received: {snapshot_start_ms}ms – {snapshot_end_ms}ms, "
-            f"{len(snapshot_inputs)} samples",
-            file=sys.stderr,
-        )
+        await done.wait()
 
         await client.stop_notify(ml_results_chr)
         await client.stop_notify(ml_errors_chr)
 
-    # Dequantize and plot
-    inputs_f  = (np.array(snapshot_inputs,  dtype=np.float32) - in_zero_point)  * in_scale
-    outputs_f = (np.array(snapshot_outputs, dtype=np.float32) - out_zero_point) * out_scale
+    return results
 
-    duration_ms = snapshot_end_ms - snapshot_start_ms
-    t = np.linspace(0, duration_ms, len(inputs_f))
 
-    fig, (ax_in, ax_out) = plt.subplots(2, 1, sharex=True)
-    ax_in.plot(t, inputs_f)
-    ax_in.set_ylabel("PPG input")
-    ax_out.plot(t, outputs_f)
-    ax_out.set_ylabel("Model output")
-    ax_out.set_xlabel("Time (ms)")
-    fig.suptitle(f"Snapshot {snapshot_start_ms}ms – {snapshot_end_ms}ms")
+def main():
+    args = parse_args()
+
+    model_bytes = args.model.read_bytes()
+
+    interpreter = Interpreter(model_content=model_bytes)
+
+    in_detail = interpreter.get_input_details()[0]
+    in_scale, in_zero_point = in_detail['quantization']
+    batch_size, n_features = (int(d) for d in in_detail['shape'])
+
+    out_detail = interpreter.get_output_details()[0]
+    out_scale, out_zero_point = out_detail['quantization']
+    score_size = int(np.prod(out_detail['shape']))
+
+    expected_len = batch_size * n_features + score_size
+
+    feature_dir = args.datasets_dir / 'feature-anomaly' / f'S{args.subject}'
+    ds_features = np.load(feature_dir / 'features.npy')
+    ds_labels = np.load(feature_dir / 'labels.npy').reshape(-1)
+
+    if ds_features.shape[1] != n_features:
+        print(f"Model expects {n_features} features, dataset has {ds_features.shape[1]}", file=sys.stderr)
+        exit(1)
+
+    results = asyncio.run(upload_and_collect(args, model_bytes, expected_len))
+
+    # Dequantize and compare against the dataset
+    y_true, y_pred, feature_mses = [], [], []
+
+    for sequence_n, raw in results:
+        arr = np.frombuffer(raw, dtype=np.int8)
+
+        features = arr[:batch_size * n_features].reshape(batch_size, n_features)[0]
+        features = (features.astype(np.float32) - in_zero_point) * in_scale
+
+        scores = arr[batch_size * n_features:].astype(np.float32)
+        score = float((scores[0] - out_zero_point) * out_scale)
+
+        if sequence_n >= len(ds_labels):
+            print(f"WARNING: sequence {sequence_n} out of dataset range "
+                  f"({len(ds_labels)} windows), skipping", file=sys.stderr)
+            continue
+
+        label = int(ds_labels[sequence_n])
+        pred = int(score > 0.5)
+        mse = float(np.mean((features - ds_features[sequence_n]) ** 2))
+
+        y_true.append(label)
+        y_pred.append(pred)
+        feature_mses.append(mse)
+
+        print(f"seq={sequence_n:5d} label={label} pred={pred} "
+              f"score={score:.4f} feature_mse={mse:.6f}")
+
+    if not y_true:
+        print("No comparable results received", file=sys.stderr)
+        exit(1)
+
+    confusion = np.zeros((2, 2), dtype=int)
+    for label, pred in zip(y_true, y_pred):
+        confusion[label, pred] += 1
+
+    print(f"\nFeature MSE (on-device vs dataset): mean={np.mean(feature_mses):.6f} "
+          f"max={np.max(feature_mses):.6f}")
+    for label, name in enumerate(('normal', 'anomalous')):
+        total = confusion[label].sum()
+        if total == 0:
+            print(f"Accuracy ({name}): n/a (no windows)")
+        else:
+            print(f"Accuracy ({name}): {confusion[label, label] / total:.3f} ({total} windows)")
+    print(f"Accuracy (total): {np.trace(confusion) / confusion.sum():.3f} ({confusion.sum()} windows)")
+
+    fig, ax = plt.subplots()
+    ax.imshow(confusion, cmap='Blues')
+    ax.set_xticks([0, 1], ['normal', 'anomalous'])
+    ax.set_yticks([0, 1], ['normal', 'anomalous'])
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("True")
+    ax.set_title(f"S{args.subject} on-device confusion matrix ({len(y_true)} windows)")
+    for i in range(2):
+        for j in range(2):
+            color = 'white' if confusion[i, j] > confusion.max() / 2 else 'black'
+            ax.text(j, i, str(confusion[i, j]), ha='center', va='center', color=color)
     plt.tight_layout()
     plt.show()
 
-asyncio.run(main())
 
+if __name__ == '__main__':
+    main()

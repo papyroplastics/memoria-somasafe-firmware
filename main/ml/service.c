@@ -1,8 +1,10 @@
 #include <esp_log.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
 #include <host/ble_att.h>
 #include <host/ble_hs.h>
+#include <os/os_mbuf.h>
 
 #include "common.h"
 #include "ble/gap.h"
@@ -14,50 +16,80 @@ static const char tag[] = APP_TAG "-ml-service";
 
 struct ble_client_buffer ml_model_buffer = BLE_CLIENT_BUFFER_INIT;
 
-#define ML_RESULTS_MAX_PAYLOAD 256
-static uint8_t ml_results_payload[ML_RESULTS_MAX_PAYLOAD];
-static uint16_t ml_results_len = 0;
 static uint8_t ml_last_error = 0;
 
-void ml_send_slice_start(uint32_t start_ms, uint32_t end_ms) {
-  uint8_t payload[9];
-  payload[0] = 0;
-  memcpy(payload + 1, &start_ms, sizeof(start_ms));
-  memcpy(payload + 5, &end_ms, sizeof(end_ms));
-  ble_gatt_notify_chr(ml_results_chr_handle, payload, sizeof(payload));
-}
-
-void ml_send_results(const int8_t *inputs, const int8_t *outputs, size_t count) {
+void ml_notify_result(uint32_t sequence_n,
+                      const int8_t *features, size_t features_len,
+                      const int8_t *score, size_t score_len) {
   uint16_t conn = ble_gap_get_conn_handle();
-  uint16_t mtu = BLE_ATT_MTU_DFLT;
-  if (conn != BLE_HS_CONN_HANDLE_NONE) {
-    uint16_t m = ble_att_mtu(conn);
-    if (m != 0) mtu = m;
-  }
+  if (conn == BLE_HS_CONN_HANDLE_NONE) return;
 
-  // -3 ATT overhead, -1 type byte
-  uint16_t max_values = (uint16_t)(mtu - 4);
-  if (max_values % 2 != 0) max_values--;
-  size_t max_pairs = max_values / 2;
-  if (max_pairs == 0) return;
+  uint16_t mtu = ble_att_mtu(conn);
+  if (mtu < BLE_ATT_MTU_DFLT) return;
 
-  size_t offset = 0;
-  while (offset < count) {
-    size_t pairs = count - offset;
-    if (pairs > max_pairs) pairs = max_pairs;
+  uint16_t max_payload = mtu - 3;
 
-    if (1 + pairs * 2 > ML_RESULTS_MAX_PAYLOAD) {
-      pairs = (ML_RESULTS_MAX_PAYLOAD - 1) / 2;
+  const uint8_t *segments[] = {
+    (const uint8_t *)features, (const uint8_t *)score,
+  };
+  const size_t segment_lens[] = { features_len, score_len };
+  const size_t data_total = features_len + score_len;
+
+  bool is_start = true;
+  size_t sent = 0;
+
+  while (sent < data_total) {
+    // Header: type byte; the start packet also carries the sequence number
+    uint8_t hdr[5];
+    uint8_t hdr_len;
+    if (is_start) {
+      hdr[0] = 1u;
+      memcpy(hdr + 1, &sequence_n, sizeof(sequence_n));
+      hdr_len = 5u;
+    } else {
+      hdr[0] = 0u;
+      hdr_len = 1u;
     }
 
-    ml_results_payload[0] = 1;
-    memcpy(ml_results_payload + 1, inputs + offset, pairs);
-    memcpy(ml_results_payload + 1 + pairs, outputs + offset, pairs);
-    ml_results_len = (uint16_t)(1 + pairs * 2);
+    size_t chunk = data_total - sent;
+    if (chunk > (size_t)(max_payload - hdr_len)) chunk = max_payload - hdr_len;
 
-    ble_gatt_notify_chr(ml_results_chr_handle, ml_results_payload, ml_results_len);
+    struct os_mbuf *om = os_msys_get_pkthdr(hdr_len + chunk, 0);
+    if (om == NULL) {
+      ESP_LOGE(tag, "failed to allocate notify mbuf");
+      return;
+    }
 
-    offset += pairs;
+    int err = os_mbuf_append(om, hdr, hdr_len);
+
+    // Append from the logical flat stream [features | score]
+    size_t pos = sent;
+    size_t remain = chunk;
+    for (size_t s = 0; s < 2 && err == 0 && remain > 0; s++) {
+      if (pos >= segment_lens[s]) {
+        pos -= segment_lens[s];
+        continue;
+      }
+      size_t n = segment_lens[s] - pos;
+      if (n > remain) n = remain;
+      err = os_mbuf_append(om, segments[s] + pos, n);
+      pos = 0;
+      remain -= n;
+    }
+
+    if (err != 0) {
+      ESP_LOGE(tag, "mbuf append failed");
+      os_mbuf_free_chain(om);
+      return;
+    }
+
+    err = ble_gatts_notify_custom(conn, ml_results_chr_handle, om);
+    if (err != 0) {
+      ESP_LOGW(tag, "notify failed: %d", err);
+    }
+
+    is_start = false;
+    sent += chunk;
   }
 }
 

@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 import argparse
@@ -11,34 +12,75 @@ import serial
 # ACC effective rate = SEND_RATE_HZ     (32 Hz at default)
 DEFAULT_RATE_HZ = 32
 
+MARKER = bytes([0xAA, 0xBB, 0xCC, 0xDD])
+ACK_TIMEOUT_S = 1.0
+
+
+def read_exact(port, n):
+    data = bytearray()
+    while len(data) < n:
+        data.extend(port.read(n - len(data)))
+    return bytes(data)
+
+
+def handshake(port):
+    """Flush stale channel data: scan for the ESP's marker + nonce, echo it
+    back along with our own nonce, and wait for ours to be echoed. A wrong
+    echo means the marker match was stale data, so those bytes are re-scanned."""
+    pending = bytearray()
+
+    def get_bytes(n):
+        take = bytearray(pending[:n])
+        del pending[:n]
+        if len(take) < n:
+            take.extend(read_exact(port, n - len(take)))
+        return bytes(take)
+
+    window = bytearray()
+    while True:
+        window.extend(get_bytes(1))
+        del window[:-len(MARKER)]
+        if bytes(window) != MARKER:
+            continue
+
+        esp_nonce = get_bytes(4)
+        script_nonce = os.urandom(4)
+        port.write(MARKER + esp_nonce + script_nonce)
+        echo = get_bytes(4)
+        if echo == script_nonce:
+            return
+
+        pending[:0] = esp_nonce + echo
+        window.clear()
+
 
 def main():
     parser = argparse.ArgumentParser(
         description="Stream raw anomalous PPG/ACC data over serial to the ESP32 test harness.")
-    parser.add_argument('serial',        type=pathlib.Path, help="Serial device (e.g. /dev/ttyUSB0)")
-    parser.add_argument('anomalous_dir', type=pathlib.Path,
-                        help="anomalous-signals directory (contains S{id}/bvp.npy)")
-    parser.add_argument('subjects_dir',  type=pathlib.Path,
-                        help="subject-signals directory (contains S{id}/acc_mag.npy)")
+    parser.add_argument('serial',       type=pathlib.Path, help="Serial device (e.g. /dev/ttyUSB0)")
+    parser.add_argument('datasets_dir', type=pathlib.Path,
+                        help="datasets/ directory (contains anomalous-signals/ and subject-signals/)")
+    parser.add_argument('--subject', type=int, default=1,
+                        help="Subject id to stream (default 1)")
     parser.add_argument('--rate', type=float, default=DEFAULT_RATE_HZ,
                         help=f"Cycle rate in Hz (default {DEFAULT_RATE_HZ}). "
                              "One cycle = 2 PPG floats + 1 ACC float.")
     args = parser.parse_args()
 
+    sid = f'S{args.subject}'
+    bvp_path = args.datasets_dir / 'anomalous-signals' / sid / 'bvp.npy'
+    acc_path = args.datasets_dir / 'subject-signals'   / sid / 'acc_mag.npy'
+
     if not args.serial.exists():
         print(f"ERROR: {args.serial} does not exist", file=sys.stderr)
         sys.exit(1)
-    if not args.anomalous_dir.is_dir():
-        print(f"ERROR: {args.anomalous_dir} is not a directory", file=sys.stderr)
-        sys.exit(1)
-    if not args.subjects_dir.is_dir():
-        print(f"ERROR: {args.subjects_dir} is not a directory", file=sys.stderr)
-        sys.exit(1)
+    for path in (bvp_path, acc_path):
+        if not path.exists():
+            print(f"ERROR: {path} not found", file=sys.stderr)
+            sys.exit(1)
 
-    subject_dirs = sorted(args.anomalous_dir.glob('S*'))
-    if not subject_dirs:
-        print(f"ERROR: no subject directories found in {args.anomalous_dir}", file=sys.stderr)
-        sys.exit(1)
+    bvp = np.load(bvp_path).astype(np.float32)
+    acc = np.load(acc_path).astype(np.float32)
 
     port = serial.Serial(
         port=str(args.serial),
@@ -46,53 +88,49 @@ def main():
         bytesize=serial.EIGHTBITS,
         parity=serial.PARITY_NONE,
         stopbits=serial.STOPBITS_ONE,
-        timeout=1,
+        timeout=None,
     )
     time.sleep(0.1)
 
+    print("Waiting for ESP handshake (restart the ESP if it hangs here)...")
+    handshake(port)
+    print("Handshake complete")
+
+    port.timeout = ACK_TIMEOUT_S
     cycle_period = 1.0 / args.rate
 
-    for subject_dir in subject_dirs:
-        sid = subject_dir.name
-        bvp_path = subject_dir / 'bvp.npy'
-        acc_path  = args.subjects_dir / sid / 'acc_mag.npy'
+    # Each cycle consumes 2 BVP samples and 1 ACC sample
+    n_cycles = min(len(bvp) // 2, len(acc))
+    duration_s = n_cycles / args.rate
 
-        if not bvp_path.exists():
-            print(f"WARNING: {bvp_path} not found, skipping {sid}", file=sys.stderr)
-            continue
-        if not acc_path.exists():
-            print(f"WARNING: {acc_path} not found, skipping {sid}", file=sys.stderr)
-            continue
+    print(f"{sid}: {n_cycles} cycles ({duration_s:.0f}s at {args.rate} Hz)")
 
-        bvp = np.load(bvp_path).astype(np.float32)
-        acc = np.load(acc_path).astype(np.float32)
+    for i in range(n_cycles):
+        t0 = time.monotonic()
 
-        # Each cycle consumes 2 BVP samples and 1 ACC sample
-        n_cycles = min(len(bvp) // 2, len(acc))
-        duration_s = n_cycles / args.rate
+        # Interleave as the firmware expects: ppg, ppg, acc + random ack byte
+        data = np.array([bvp[i * 2], bvp[i * 2 + 1], acc[i]], dtype=np.float32)
+        postfix = os.urandom(1)
+        port.write(data.tobytes() + postfix)
 
-        print(f"{sid}: {n_cycles} cycles ({duration_s:.0f}s at {args.rate} Hz)")
+        ack = port.read(1)
+        if len(ack) == 0:
+            print(f"ERROR: ack timeout at cycle {i}", file=sys.stderr)
+            sys.exit(1)
+        if ack != postfix:
+            print(f"ERROR: bad ack at cycle {i}: sent {postfix.hex()}, got {ack.hex()}",
+                  file=sys.stderr)
+            sys.exit(1)
 
-        for i in range(n_cycles):
-            t0 = time.monotonic()
+        if (i + 1) % (int(args.rate) * 10) == 0:
+            print(f"  {i + 1}/{n_cycles} cycles", end='\r')
 
-            # Interleave as the firmware expects: ppg, ppg, acc
-            data = np.array([bvp[i * 2], bvp[i * 2 + 1], acc[i]], dtype=np.float32)
-            port.write(data.tobytes())
+        elapsed = time.monotonic() - t0
+        remaining = cycle_period - elapsed
+        if remaining > 0:
+            time.sleep(remaining)
 
-            if (i + 1) % (int(args.rate) * 10) == 0:
-                port.flush()
-                print(f"  {i + 1}/{n_cycles} cycles", end='\r')
-
-            elapsed = time.monotonic() - t0
-            remaining = cycle_period - elapsed
-            if remaining > 0:
-                time.sleep(remaining)
-
-        print(f"  {n_cycles}/{n_cycles} cycles — done     ")
-
-    port.flush()
-    print("All subjects sent.")
+    print(f"  {n_cycles}/{n_cycles} cycles — done     ")
 
 
 if __name__ == '__main__':

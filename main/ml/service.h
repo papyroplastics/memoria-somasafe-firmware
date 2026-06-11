@@ -24,8 +24,14 @@ int ml_errors_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     struct ble_gatt_access_ctxt *ctxt, void *arg);
 
 void ml_report_error(enum ml_error_code code);
-void ml_send_slice_start(uint32_t start_ms, uint32_t end_ms);
-void ml_send_results(const int8_t *inputs, const int8_t *outputs, size_t count);
+
+// Notify one inference result: the quantized input feature vector followed by
+// the model's score output tensor, split across packets per the MTU.
+// The first packet starts with a 1 followed by the slice sequence number;
+// continuation packets start with a 0.
+void ml_notify_result(uint32_t sequence_n,
+                      const int8_t *features, size_t features_len,
+                      const int8_t *score, size_t score_len);
 
 #ifdef __cplusplus
 }

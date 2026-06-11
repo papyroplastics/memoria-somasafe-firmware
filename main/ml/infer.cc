@@ -25,20 +25,20 @@ static const char tag[] = APP_TAG "-ml-infer";
 
 static tflite::MicroMutableOpResolver<2> resolver;
 
-static const uint16_t tensor_arena_size = 1024 * 16;
-static uint8_t tensor_arena[tensor_arena_size];
+static const uint16_t tensor_arena_size = 1024 * 12;
+static __attribute__((aligned(16))) uint8_t tensor_arena[tensor_arena_size];
 
 static const tflite::Model *model;
 static tflite::MicroInterpreter *interpreter;
 static TfLiteTensor *input_tensor;
-static TfLiteTensor *output_tensor;
+static TfLiteTensor *score_tensor;
 
 static void unset_interpreter() {
   if (interpreter != NULL) delete interpreter;
   interpreter = NULL;
   model = NULL;
   input_tensor = NULL;
-  output_tensor = NULL;
+  score_tensor = NULL;
 }
 
 static ml_error_code ml_build_interpreter(const uint8_t *model_data) {
@@ -66,8 +66,15 @@ static ml_error_code ml_build_interpreter(const uint8_t *model_data) {
     return ML_ERR_TENSOR_ALLOC;
   }
 
-  input_tensor  = interpreter->input(0);
-  output_tensor = interpreter->output(0);
+  if (interpreter->outputs_size() != 1) {
+    ESP_LOGE(tag, "expected 1 output tensor (score), got %d",
+             (int)interpreter->outputs_size());
+    unset_interpreter();
+    return ML_ERR_INVALID_SHAPE;
+  }
+
+  input_tensor = interpreter->input(0);
+  score_tensor = interpreter->output(0);
   return ML_ERR_NONE;
 }
 
@@ -125,8 +132,7 @@ void ml_task(void *param) {
       continue;
     }
 
-    uint32_t start_ms = slice->start_ms;
-    uint32_t end_ms   = slice->end_ms;
+    uint32_t sequence_n = slice->sequence_n;
 
     ml_extract_features(slice, features);
     ppg_ring_release_read();
@@ -150,8 +156,9 @@ void ml_task(void *param) {
       continue;
     }
 
-    ml_send_slice_start(start_ms, end_ms);
-    ml_send_results(input_tensor->data.int8, output_tensor->data.int8, 1);
+    ml_notify_result(sequence_n,
+                     input_tensor->data.int8, input_tensor->bytes,
+                     score_tensor->data.int8, score_tensor->bytes);
   }
 
   ESP_LOGE(tag, "ML task exited unexpectedly");

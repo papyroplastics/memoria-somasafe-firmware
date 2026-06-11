@@ -17,14 +17,12 @@ extern "C" {
 #define PPG_RING_CAPACITY 4
 
 struct ppg_slice {
+  uint32_t sequence_n;
   uint32_t start_ms;
   uint32_t end_ms;
   float    ppg[PPG_SLICE_PPG_COUNT];
   float    acc[PPG_SLICE_ACC_COUNT];
 };
-
-float sensor_get_ppg(void);
-float sensor_get_acc(void);
 
 void ppg_task(void *param);
 

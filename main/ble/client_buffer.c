@@ -72,7 +72,7 @@ static int ble_client_buffer_read(struct ble_client_buffer *buffer,
   }
 
   uint16_t mtu = ble_att_mtu(conn_handle);
-  if (mtu < 23) {
+  if (mtu < BLE_ATT_MTU_DFLT) {
     return BLE_ATT_ERR_UNLIKELY;
   }
 
