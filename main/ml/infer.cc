@@ -16,16 +16,16 @@
 #include "ble/client_buffer.h"
 #include "esp_system.h"
 #include "ml/features.h"
-#include "ml/normalize.h"
 #include "ml/service.h"
 #include "ml/infer.h"
 #include "ppg/sensor.h"
+#include "tensorflow/lite/c/c_api_types.h"
 
 static const char tag[] = APP_TAG "-ml-infer";
 
 static tflite::MicroMutableOpResolver<2> resolver;
 
-static const uint16_t tensor_arena_size = 1024 * 12;
+static const uint16_t tensor_arena_size = 1024 * 16;
 static __attribute__((aligned(16))) uint8_t tensor_arena[tensor_arena_size];
 
 static const tflite::Model *model;
@@ -89,7 +89,9 @@ static int8_t quantize(float value, const TfLiteTensor *tensor) {
 void ml_task(void *param) {
   (void)param;
 
-  if (resolver.AddFullyConnected() != kTfLiteOk || resolver.AddRelu() != kTfLiteOk) {
+  if (resolver.AddFullyConnected() != kTfLiteOk 
+      || resolver.AddRelu() != kTfLiteOk
+  ) {
     ESP_LOGE(tag, "required tflite op not supported");
     esp_restart();
   }
@@ -104,7 +106,7 @@ void ml_task(void *param) {
       ml_error_code err = ml_build_interpreter(ml_model_buffer.data);
       if (err != ML_ERR_NONE) {
         ble_client_buffer_unlock(&ml_model_buffer);
-        ml_report_error(err);
+        ml_error_notify_send(err);
         vTaskDelay(pdMS_TO_TICKS(500));
         continue;
       }
@@ -120,7 +122,7 @@ void ml_task(void *param) {
     int n_features = (input_tensor->dims->size >= 2) ? input_tensor->dims->data[1] : 1;
     if (batch_size <= 0 || n_features != ML_N_FEATURES) {
       ble_client_buffer_unlock(&ml_model_buffer);
-      ml_report_error(ML_ERR_INVALID_SHAPE);
+      ml_error_notify_send(ML_ERR_INVALID_SHAPE);
       vTaskDelay(pdMS_TO_TICKS(500));
       continue;
     }
@@ -152,11 +154,11 @@ void ml_task(void *param) {
     ble_client_buffer_unlock(&ml_model_buffer);
 
     if (status != kTfLiteOk) {
-      ml_report_error(ML_ERR_INVOKE);
+      ml_error_notify_send(ML_ERR_INVOKE);
       continue;
     }
 
-    ml_notify_result(sequence_n,
+    ml_result_notify_send(sequence_n,
                      input_tensor->data.int8, input_tensor->bytes,
                      score_tensor->data.int8, score_tensor->bytes);
   }

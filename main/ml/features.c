@@ -3,6 +3,7 @@
 #include "esp_dsp.h"
 
 #include "ml/features.h"
+#include "ml/norm_params.h"
 
 #define FFT_N           PPG_SLICE_PPG_COUNT  // 512
 #define HR_BAND_LO_BIN  6                    // 0.75 Hz  (first bin ≥ 0.7 Hz at 0.125 Hz/bin)
@@ -102,3 +103,10 @@ void ml_extract_features(const struct ppg_slice *slice, float features[ML_N_FEAT
     features[15] = (float)peak_bin * ((float)PPG_SAMPLE_RATE / (float)FFT_N);
     features[16] = band_power / (total_power + 1e-8f);
 }
+
+void ml_normalize_features(float *features) {
+    for (int i = 0; i < ML_N_FEATURES; i++) {
+        features[i] = (features[i] - ML_FEAT_MEAN[i]) / ML_FEAT_STD[i];
+    }
+}
+

@@ -4,6 +4,7 @@ sdkconfig.old
 managed_components/
 
 datasets
+models
 
 __pycache__/
 .venv/

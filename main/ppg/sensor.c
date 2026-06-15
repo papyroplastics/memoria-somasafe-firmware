@@ -127,7 +127,7 @@ void ppg_task(void *param) {
       uint16_t sec_ppg = ppg_idx - PPG_SAMPLE_RATE;
       uint16_t sec_acc = acc_idx - PPG_ACC_RATE;
       bool window_start = (sec_ppg == 0);
-      ppg_notify_data(
+      ppg_data_notify_send(
         &slice->ppg[sec_ppg], PPG_SAMPLE_RATE,
         &slice->acc[sec_acc], PPG_ACC_RATE,
         window_start, slice->sequence_n

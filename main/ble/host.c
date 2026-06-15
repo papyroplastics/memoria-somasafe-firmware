@@ -12,12 +12,14 @@
 #include "ble/gap.h"
 #include "nimble/nimble_port_freertos.h"
 
+#include <store/config/ble_store_config.h>
+
 static const char tag[] = APP_TAG "-ble";
 
 const char device_name[] = "SomaSafe Device";
 const uint8_t device_name_len = strlen(device_name);
 const char device_short_name[] = "PPG";
-const uint8_t device_short_name_lenght = strlen(device_short_name);
+const uint8_t device_short_name_len = strlen(device_short_name);
 
 static void on_stack_reset(int reason) {
   ESP_LOGI(tag, "NimBLE stack reset with reason %d", reason);
@@ -38,6 +40,27 @@ int ble_init() {
   ble_hs_cfg.sync_cb = on_stack_sync;
   ble_hs_cfg.reset_cb = on_stack_reset;
   ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
+  //ble_hs_cfg.gatts_register_cb = ble_gatt_register_cb;
+
+#if SMP_SECURITY_LEVEL > 0
+  ble_hs_cfg.sm_sc = 1;
+  ble_hs_cfg.sm_sc_only = 0;
+  ble_hs_cfg.sm_bonding = 0;
+  ble_hs_cfg.sm_sec_lvl = SMP_SECURITY_LEVEL;
+
+  ble_hs_cfg.sm_our_key_dist   |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+  ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+
+#if SMP_SECURITY_LEVEL > 1
+  ble_hs_cfg.sm_io_cap = BLE_HS_IO_DISPLAY_ONLY;
+  ble_hs_cfg.sm_mitm = 1;
+#endif
+
+#endif
+
+  // NimBLE interface not exported on a header for some reason
+  void ble_store_config_init(void);
+  ble_store_config_init();
 
   err = ble_gap_task_prepare();
   if (err != 0) {

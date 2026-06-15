@@ -8,16 +8,22 @@
 #include "common.h"
 #include "ble/gap.h"
 #include "ble/gatt.h"
+#include "ble/host.h"
 #include "ppg/sensor.h"
 #include "ppg/service.h"
 
 static const char tag[] = APP_TAG "-ppg-service";
 
-void ppg_notify_data(const float *ppg, uint16_t ppg_count,
-                     const float *acc, uint16_t acc_count,
-                     bool window_start, uint32_t sequence_n) {
+void ppg_data_notify_send(const float *ppg, uint16_t ppg_count,
+                          const float *acc, uint16_t acc_count,
+                          bool window_start, uint32_t sequence_n) {
+
+  if (!ppg_data_chr_notify) return;
+
   uint16_t conn = ble_gap_get_conn_handle();
   if (conn == BLE_HS_CONN_HANDLE_NONE) return;
+
+  ASSERT_ENCRYPYED()
 
   uint16_t mtu = ble_att_mtu(conn);
   if (mtu < BLE_ATT_MTU_DFLT) return;
@@ -40,50 +46,52 @@ void ppg_notify_data(const float *ppg, uint16_t ppg_count,
       hdr[1] = PPG_SLICE_SECONDS;
       memcpy(hdr + 2, &sequence_n, sizeof(sequence_n));
       hdr_len = 6u;
+      is_start = false;
     } else {
       hdr[0] = 0u;
       hdr_len = 1u;
     }
 
-    uint16_t space = max_payload - hdr_len;
-    space = (space / sizeof(float)) * sizeof(float);  // align to float boundary
+    uint16_t body_capacity = (max_payload - hdr_len) / sizeof(float) * sizeof(float);
+    uint16_t body_len = data_total - sent;
+    if (body_len > body_capacity) body_len = body_capacity;
 
-    uint16_t chunk = (uint16_t)((data_total - sent < space)
-                                  ? (data_total - sent) : space);
-
-    struct os_mbuf *om = os_msys_get_pkthdr(hdr_len + chunk, 0);
+    struct os_mbuf *om = os_msys_get_pkthdr(hdr_len + body_len, 0);
     if (om == NULL) {
-      ESP_LOGE(tag, "failed to allocate notify mbuf");
+      ESP_LOGE(tag, "failed to allocate notify mbuf for ppg data notification");
       return;
     }
 
-    int err = os_mbuf_append(om, hdr, hdr_len);
-
-    // Append from the logical flat stream [ppg_bytes | acc_bytes]
-    uint32_t remain = chunk;
-    if (err == 0 && sent < ppg_bytes && remain > 0) {
-      uint32_t n = ppg_bytes - sent;
-      if (n > remain) n = remain;
-      err = os_mbuf_append(om, (const uint8_t *)ppg + sent, n);
-      remain -= n;
-    }
-    if (err == 0 && remain > 0) {
-      uint32_t acc_offset = (sent >= ppg_bytes) ? (sent - ppg_bytes) : 0u;
-      err = os_mbuf_append(om, (const uint8_t *)acc + acc_offset, remain);
-    }
-
-    if (err != 0) {
-      ESP_LOGE(tag, "mbuf append failed");
+    if (os_mbuf_append(om, hdr, hdr_len) != 0) {
       os_mbuf_free_chain(om);
       return;
     }
 
-    err = ble_gatts_notify_custom(conn, ppg_chr_handle, om);
-    if (err != 0) {
-      ESP_LOGW(tag, "notify failed: %d", err);
+    uint32_t remain = body_len;
+    if (sent < ppg_bytes) {
+      uint32_t n = ppg_bytes - sent;
+      if (n > remain) n = remain;
+      remain -= n;
+
+      if (os_mbuf_append(om, (const uint8_t *)ppg + sent, n) != 0) {
+        os_mbuf_free_chain(om);
+        return;
+      }
     }
 
-    is_start = false;
-    sent += chunk;
+    if (remain > 0 && sent >= ppg_bytes) {
+      uint32_t acc_offset = sent - ppg_bytes;
+      if (os_mbuf_append(om, (const uint8_t *)acc + acc_offset, remain) != 0) {
+        os_mbuf_free_chain(om);
+        return;
+      }
+    }
+
+    int err = ble_gatts_notify_custom(conn, ppg_data_chr_handle, om);
+    if (err != 0) {
+      ESP_LOGW(tag, "ppg data notification failed with reason %d", err);
+    }
+
+    sent += body_len;
   }
 }

@@ -2,7 +2,7 @@ import os
 import sys
 import time
 import argparse
-import pathlib
+from pathlib import Path
 
 import numpy as np
 import serial
@@ -57,8 +57,8 @@ def handshake(port):
 def main():
     parser = argparse.ArgumentParser(
         description="Stream raw anomalous PPG/ACC data over serial to the ESP32 test harness.")
-    parser.add_argument('serial',       type=pathlib.Path, help="Serial device (e.g. /dev/ttyUSB0)")
-    parser.add_argument('datasets_dir', type=pathlib.Path,
+    parser.add_argument('serial',       type=Path, help="Serial device (e.g. /dev/ttyUSB0)")
+    parser.add_argument('datasets_dir', type=Path, default=Path('datasets'),
                         help="datasets/ directory (contains anomalous-signals/ and subject-signals/)")
     parser.add_argument('--subject', type=int, default=1,
                         help="Subject id to stream (default 1)")

@@ -15,43 +15,40 @@
 
 static const char tag[] = APP_TAG "-gatt";
 
-// PPG service — custom 128-bit UUID (not the standard HRS)
-// UUID: c7e4f210-3a8b-4d56-9c2f-1e7b0a5d3c8e
+// PPG service
 const ble_uuid128_t ppg_svc_uuid = BLE_UUID128_INIT(
     0x8e, 0x3c, 0x5d, 0x0a, 0x7b, 0x1e, 0x2f, 0x9c,
     0x56, 0x4d, 0x8b, 0x3a, 0x10, 0xf2, 0xe4, 0xc7,
 );
 
-// PPG data characteristic — notify-only, raw BVP+ACC floats
-// UUID: b8e9a347-5c12-4f89-a7d3-2e1f6b0c4a9d
-uint16_t ppg_chr_handle;
-const ble_uuid128_t ppg_chr_uuid = BLE_UUID128_INIT(
+uint16_t ppg_data_chr_handle;
+uint8_t ppg_data_chr_notify;
+const ble_uuid128_t ppg_data_chr_uuid = BLE_UUID128_INIT(
     0x9d, 0x4a, 0x0c, 0x6b, 0x1f, 0x2e, 0xd3, 0xa7,
     0x89, 0x4f, 0x12, 0x5c, 0x47, 0xa3, 0xe9, 0xb8,
 );
 
+// ML service
 const ble_uuid128_t ml_svc_uuid = BLE_UUID128_INIT(
     0x38, 0x27, 0x43, 0xd4, 0xda, 0xb7, 0x43, 0xfe,
     0x92, 0x24, 0x43, 0x75, 0x40, 0x38, 0x52, 0xa4,
 );
 
-uint16_t ml_results_chr_handle;
-const ble_uuid128_t ml_results_chr_uuid = BLE_UUID128_INIT(
+uint16_t ml_result_chr_handle;
+uint8_t ml_result_chr_notify;
+const ble_uuid128_t ml_result_chr_uuid = BLE_UUID128_INIT(
     0x54, 0x3c, 0xc2, 0x5a, 0x71, 0x1f, 0x4d, 0xfa,
     0x9c, 0x4b, 0xc1, 0x4f, 0x86, 0xd0, 0x28, 0x72
 );
 uint16_t ml_errors_chr_handle;
+uint8_t ml_errors_chr_notify;
 const ble_uuid128_t ml_errors_chr_uuid = BLE_UUID128_INIT(
     0x0e, 0x33, 0x1f, 0xcf, 0x7a, 0x8a, 0x42, 0xc6,
     0xa5, 0x6e, 0x25, 0x5a, 0x42, 0x8c, 0x8b, 0x9c
 );
 
-// No 16-bit service UUIDs remain; keep an empty array so gap.c compiles unchanged.
-const ble_uuid16_t svc_uuid16[1] = { BLE_UUID16_INIT(0x0000) };
-const uint8_t      svc_uuid16_cnt = 0;
-
 const ble_uuid128_t svc_uuid128[] = { ppg_svc_uuid, ml_svc_uuid };
-const uint8_t       svc_uuid128_cnt = sizeof(svc_uuid128) / sizeof(*svc_uuid128);
+const uint8_t svc_uuid128_cnt = sizeof(svc_uuid128) / sizeof(*svc_uuid128);
 
 static int noop_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     struct ble_gatt_access_ctxt *ctxt, void *arg);
@@ -64,13 +61,13 @@ static struct ble_gatt_svc_def gatt_svcs[] = {
     .includes = NULL,
     .characteristics = (struct ble_gatt_chr_def[]) {
       {
-        .uuid = &ppg_chr_uuid.u,
+        .uuid = &ppg_data_chr_uuid.u,
         .access_cb = noop_chr_access_cb,
         .arg = "ppg data",
         .descriptors = NULL,
-        .flags = BLE_GATT_CHR_F_NOTIFY,
+        .flags = GATT_CHR_NOTIFY_FLAGS,
         .min_key_size = 0,
-        .val_handle = &ppg_chr_handle,
+        .val_handle = &ppg_data_chr_handle,
         .cpfd = 0,
       },
       {0}
@@ -82,21 +79,21 @@ static struct ble_gatt_svc_def gatt_svcs[] = {
     .includes = NULL,
     .characteristics = (struct ble_gatt_chr_def[]) {
       {
-        .uuid = &ml_results_chr_uuid.u,
+        .uuid = &ml_result_chr_uuid.u,
         .access_cb = noop_chr_access_cb,
         .arg = "ml result",
         .descriptors = NULL,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .flags = GATT_CHR_NOTIFY_FLAGS,
         .min_key_size = 0,
-        .val_handle = &ml_results_chr_handle,
+        .val_handle = &ml_result_chr_handle,
         .cpfd = 0,
       },
       {
         .uuid = &ml_errors_chr_uuid.u,
-        .access_cb = ml_errors_chr_access_cb,
+        .access_cb = noop_chr_access_cb,
         .arg = NULL,
         .descriptors = NULL,
-        .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_NOTIFY,
+        .flags = GATT_CHR_NOTIFY_FLAGS,
         .min_key_size = 0,
         .val_handle = &ml_errors_chr_handle,
         .cpfd = 0,
@@ -108,6 +105,42 @@ static struct ble_gatt_svc_def gatt_svcs[] = {
   {0},
 };
 // clang-format on
+
+void ble_gatt_subscribe_cb(uint16_t attr_handle, uint8_t notify) {
+  if (attr_handle == ppg_data_chr_handle) {
+    ppg_data_chr_notify = notify;
+  } else if (attr_handle == ml_result_chr_notify) {
+    ml_result_chr_notify = notify;
+  } else if (attr_handle == ml_errors_chr_handle) {
+    ml_errors_chr_notify = notify;
+  }
+}
+
+void ble_gatt_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg) {
+    char buf[BLE_UUID_STR_LEN];
+
+    switch (ctxt->op) {
+    case BLE_GATT_REGISTER_OP_SVC:
+        ESP_LOGI(tag, "registered service %s with handle=%d",
+                 ble_uuid_to_str(ctxt->svc.svc_def->uuid, buf), ctxt->svc.handle);
+        break;
+
+    case BLE_GATT_REGISTER_OP_CHR:
+        ESP_LOGI(tag, "registered characteristic %s with def_handle=%d val_handle=%d",
+                 ble_uuid_to_str(ctxt->chr.chr_def->uuid, buf),
+                 ctxt->chr.def_handle, ctxt->chr.val_handle);
+        break;
+
+    case BLE_GATT_REGISTER_OP_DSC:
+        ESP_LOGI(tag, "registered descriptor %s with handle=%d",
+                 ble_uuid_to_str(ctxt->dsc.dsc_def->uuid, buf), ctxt->dsc.handle);
+        break;
+
+    default:
+        ESP_LOGI(tag, "registered unknown attribute of type=%d", ctxt->op);
+        break;
+    }
+}
 
 static int noop_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     struct ble_gatt_access_ctxt *ctxt, void *arg) {

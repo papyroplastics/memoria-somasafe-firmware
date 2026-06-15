@@ -9,6 +9,8 @@
 #include <host/ble_gatt.h>
 #include <host/ble_uuid.h>
 
+#include "ble/host.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -83,21 +85,21 @@ void ble_client_buffer_unlock(struct ble_client_buffer *buffer);
     .descriptors = (struct ble_gatt_dsc_def[]) { \
       { \
         .uuid = &ble_buffer_size_dsc_uuid.u, \
-        .att_flags = BLE_ATT_F_READ | BLE_ATT_F_WRITE, \
+        .att_flags = GATT_DSC_READ_FLAGS | GATT_DSC_WRITE_FLAGS, \
         .min_key_size = 0, \
         .access_cb = ble_client_buffer_size_dsc_access_cb, \
         .arg = &(service), \
       }, \
       { \
         .uuid = &ble_buffer_pos_dsc_uuid.u, \
-        .att_flags = BLE_ATT_F_READ | BLE_ATT_F_WRITE, \
+        .att_flags = GATT_DSC_READ_FLAGS | GATT_DSC_WRITE_FLAGS, \
         .min_key_size = 0, \
         .access_cb = ble_client_buffer_pos_dsc_access_cb, \
         .arg = &(service), \
       }, \
       {0}, \
     }, \
-    .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE, \
+    .flags = GATT_CHR_READ_FLAGS | GATT_CHR_WRITE_FLAGS, \
     .min_key_size = 0, \
     .val_handle = &(service).chr_handle, \
     .cpfd = NULL, \
@@ -107,7 +109,7 @@ void ble_client_buffer_unlock(struct ble_client_buffer *buffer);
     .access_cb = ble_client_buffer_state_chr_access_cb, \
     .arg = &(service), \
     .descriptors = NULL, \
-    .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_NOTIFY, \
+    .flags = GATT_CHR_READ_FLAGS | GATT_CHR_WRITE_FLAGS | GATT_CHR_NOTIFY_FLAGS, \
     .min_key_size = 0, \
     .val_handle = &(service).state_chr_handle, \
     .cpfd = NULL, \

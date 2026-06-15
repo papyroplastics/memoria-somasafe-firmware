@@ -98,24 +98,7 @@ static void buffer_state_reset_work(void *arg) {
   buffer->ready = false;
   pthread_mutex_unlock(&buffer->mutex);
 
-  if (buffer->state_chr_handle != 0) {
-    ble_gatts_chr_updated(buffer->state_chr_handle);
-  }
-}
-
-static int ble_client_buffer_set_ready(struct ble_client_buffer *buffer) {
-  pthread_mutex_lock(&buffer->mutex);
-  buffer->ready = true;
-  pthread_cond_broadcast(&buffer->cond);
-  pthread_mutex_unlock(&buffer->mutex);
-  return 0;
-}
-
-static int enqueue_buffer_state_reset(struct ble_client_buffer *buffer) {
-  if (worker_queue_push_task(buffer_state_reset_work, buffer) != 0) {
-    return BLE_ATT_ERR_UNLIKELY;
-  }
-  return 0;
+  ble_gatts_chr_updated(buffer->state_chr_handle);
 }
 
 bool ble_client_buffer_lock(struct ble_client_buffer *buffer) {
@@ -361,6 +344,7 @@ int ble_client_buffer_state_chr_access_cb(uint16_t conn_handle, uint16_t attr_ha
         return append_u8(ctxt->om, state);
       }
       return append_u8(ctxt->om, BUF_ACC_READY);
+
     case BLE_GATT_ACCESS_OP_WRITE_CHR: {
       uint8_t state = 0;
       int err = read_u8(ctxt->om, &state);
@@ -370,9 +354,19 @@ int ble_client_buffer_state_chr_access_cb(uint16_t conn_handle, uint16_t attr_ha
 
       switch (state) {
         case BUF_ACC_NOT_READY:
-          return enqueue_buffer_state_reset(buffer);
+          if (worker_queue_push_task(buffer_state_reset_work, buffer) != 0) {
+            return BLE_ATT_ERR_UNLIKELY;
+          }
+          return 0;
+
         case BUF_ACC_READY:
-          return ble_client_buffer_set_ready(buffer);
+          if (pthread_mutex_trylock(&buffer->mutex)) {
+            buffer->ready = true;
+            pthread_cond_broadcast(&buffer->cond);
+            pthread_mutex_unlock(&buffer->mutex);
+          }
+          return 0;
+
         default:
           ESP_LOGE(tag, "client wrote illegal state %d", state);
           return BLE_ATT_ERR_VALUE_NOT_ALLOWED;

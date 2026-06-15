@@ -9,6 +9,7 @@
 #include "common.h"
 #include "ble/gap.h"
 #include "ble/gatt.h"
+#include "ble/host.h"
 #include "ml/service.h"
 #include "ble/client_buffer.h"
 
@@ -16,105 +17,94 @@ static const char tag[] = APP_TAG "-ml-service";
 
 struct ble_client_buffer ml_model_buffer = BLE_CLIENT_BUFFER_INIT;
 
-static uint8_t ml_last_error = 0;
+void ml_result_notify_send(uint32_t sequence_n,
+                           const int8_t *features, size_t features_len,
+                           const int8_t *result, size_t result_len) {
+  if (!ml_result_chr_notify) return;
 
-void ml_notify_result(uint32_t sequence_n,
-                      const int8_t *features, size_t features_len,
-                      const int8_t *score, size_t score_len) {
   uint16_t conn = ble_gap_get_conn_handle();
   if (conn == BLE_HS_CONN_HANDLE_NONE) return;
+
+  ASSERT_ENCRYPYED()
 
   uint16_t mtu = ble_att_mtu(conn);
   if (mtu < BLE_ATT_MTU_DFLT) return;
 
   uint16_t max_payload = mtu - 3;
 
-  const uint8_t *segments[] = {
-    (const uint8_t *)features, (const uint8_t *)score,
-  };
-  const size_t segment_lens[] = { features_len, score_len };
-  const size_t data_total = features_len + score_len;
+  const size_t data_total = features_len + result_len;
 
   bool is_start = true;
   size_t sent = 0;
 
   while (sent < data_total) {
-    // Header: type byte; the start packet also carries the sequence number
     uint8_t hdr[5];
     uint8_t hdr_len;
+
     if (is_start) {
-      hdr[0] = 1u;
+      hdr[0] = 1;
       memcpy(hdr + 1, &sequence_n, sizeof(sequence_n));
-      hdr_len = 5u;
+      hdr_len = 5;
+      is_start = false;
+
     } else {
-      hdr[0] = 0u;
-      hdr_len = 1u;
+      hdr[0] = 0;
+      hdr_len = 1;
     }
 
-    size_t chunk = data_total - sent;
-    if (chunk > (size_t)(max_payload - hdr_len)) chunk = max_payload - hdr_len;
+    size_t body_capacity = max_payload - hdr_len;
+    size_t body_len = data_total - sent;
+    if (body_len > body_capacity) body_len = body_capacity;
 
-    struct os_mbuf *om = os_msys_get_pkthdr(hdr_len + chunk, 0);
+    struct os_mbuf *om = os_msys_get_pkthdr(hdr_len + body_len, 0);
     if (om == NULL) {
       ESP_LOGE(tag, "failed to allocate notify mbuf");
       return;
     }
 
-    int err = os_mbuf_append(om, hdr, hdr_len);
-
-    // Append from the logical flat stream [features | score]
-    size_t pos = sent;
-    size_t remain = chunk;
-    for (size_t s = 0; s < 2 && err == 0 && remain > 0; s++) {
-      if (pos >= segment_lens[s]) {
-        pos -= segment_lens[s];
-        continue;
-      }
-      size_t n = segment_lens[s] - pos;
-      if (n > remain) n = remain;
-      err = os_mbuf_append(om, segments[s] + pos, n);
-      pos = 0;
-      remain -= n;
-    }
-
-    if (err != 0) {
-      ESP_LOGE(tag, "mbuf append failed");
+    if (os_mbuf_append(om, hdr, hdr_len) != 0) {
       os_mbuf_free_chain(om);
       return;
     }
 
-    err = ble_gatts_notify_custom(conn, ml_results_chr_handle, om);
-    if (err != 0) {
-      ESP_LOGW(tag, "notify failed: %d", err);
+    uint32_t remain = body_len;
+    if (sent < features_len) {
+      uint32_t n = features_len - sent;
+      if (n > remain) n = remain;
+      remain -= n;
+
+      if (os_mbuf_append(om, features + sent, n) != 0) {
+        os_mbuf_free_chain(om);
+        return;
+      }
     }
 
-    is_start = false;
-    sent += chunk;
-  }
-}
-
-void ml_report_error(enum ml_error_code code) {
-  ml_last_error = (uint8_t)code;
-  ble_gatt_notify_chr(ml_errors_chr_handle, &ml_last_error, sizeof(ml_last_error));
-}
-
-int ml_errors_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
-    struct ble_gatt_access_ctxt *ctxt, void *arg) {
-  (void)attr_handle;
-  (void)arg;
-
-  switch (ctxt->op) {
-    case BLE_GATT_ACCESS_OP_READ_CHR: 
-      if (os_mbuf_append(ctxt->om, &ml_last_error, sizeof(ml_last_error)) != 0) {
-        return BLE_ATT_ERR_UNLIKELY;
+    if (remain > 0 && sent > features_len) {
+      uint32_t result_offset = sent - features_len;
+      if (os_mbuf_append(om, result + result_offset, remain) != 0) {
+        os_mbuf_free_chain(om);
+        return;
       }
-      break;
+    }
 
-    default:
-      ESP_LOGE(tag, "illegal operation to HR chr with code: %d", ctxt->op);
-      return BLE_ATT_ERR_UNLIKELY;
+    int err = ble_gatts_notify_custom(conn, ml_result_chr_handle, om);
+    if (err != 0) {
+      ESP_LOGW(tag, "ppg data notification failed with reason %d", err);
+    }
+
+    sent += body_len;
   }
+}
 
-  return 0;
+void ml_error_notify_send(enum ml_error_code code) {
+  if (!ml_errors_chr_notify) return;
+
+  uint16_t conn = ble_gap_get_conn_handle();
+  if (conn == BLE_HS_CONN_HANDLE_NONE) return;
+
+  ASSERT_ENCRYPYED()
+
+  uint8_t error = (uint8_t)code;
+  ble_gatt_notify_chr(ml_errors_chr_handle, &error, sizeof(error));
 }
 

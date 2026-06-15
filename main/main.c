@@ -31,7 +31,7 @@ void app_main(void) {
   if (err != 0) return;
 
   xTaskCreate(worker_task, "Worker", 2048, NULL, 4, NULL);
-  xTaskCreate(ppg_task, "PPG Sensor", 1024, NULL, 5, NULL);
+  xTaskCreate(ppg_task, "PPG Sensor", 4096, NULL, 5, NULL);
   xTaskCreate(ml_task, "ML Infer", 4096, NULL, 5, NULL);
 
   nimble_port_freertos_init(ble_task);

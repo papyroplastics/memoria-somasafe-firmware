@@ -1,7 +1,7 @@
 import sys
 import asyncio
 import argparse
-import pathlib
+from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -30,14 +30,15 @@ ML_ERROR_NAMES = {
     5: "INVALID_SHAPE",
 }
 
-
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Upload a .tflite model over BLE and compare on-device "
                     "inference results against the feature dataset.")
-    parser.add_argument('model', type=pathlib.Path, help=".tflite model file")
-    parser.add_argument('datasets_dir', type=pathlib.Path,
-                        help="datasets/ directory (contains feature-anomaly/)")
+
+    parser.add_argument('model', type=Path, default=Path('models/feature-mlp/post-train-opti.tflite'),
+                        help=".tflite model file")
+    parser.add_argument('datasets_dir', type=Path, default=Path('datasets'),
+                        help="datasets directory (contains feature-anomaly)")
     parser.add_argument('--subject', type=int, default=1,
                         help="Subject id being streamed by serial_write.py (default 1)")
     parser.add_argument('--results', type=int, default=10,
@@ -81,6 +82,7 @@ async def upload_and_collect(args, model_bytes, expected_len):
                     ml_results_chr = chr
                 elif chr.uuid == ML_ERRORS_CHR_UUID:
                     ml_errors_chr = chr
+
                 for dsc in chr.descriptors:
                     print(f"    - Descriptor \"{dsc.description}\" - {dsc.uuid} - {dsc.handle}", file=sys.stderr)
                     if dsc.uuid == MODEL_SIZE_DSC_UUID:
@@ -98,7 +100,21 @@ async def upload_and_collect(args, model_bytes, expected_len):
             print("Unable to find model attributes", file=sys.stderr)
             exit(1)
 
+        state_unready = asyncio.Event()
+
+        def wait_unready(_, data: bytearray):
+            state = int.from_bytes(data)
+
+            if state == BUFFER_STATE_NOT_READY:
+                state_unready.set()
+
+        print(f"Setting buffer state to not ready", file=sys.stderr)
+        await client.start_notify(model_state_chr, wait_unready)
         await client.write_gatt_char(model_state_chr, bytes([BUFFER_STATE_NOT_READY]), response=True)
+
+        await state_unready.wait()
+        await client.stop_notify(model_state_chr)
+
 
         await client.write_gatt_descriptor(model_size_dsc, int.to_bytes(len(model_bytes), length=4, byteorder='little'))
         model_size_od = int.from_bytes(await client.read_gatt_descriptor(model_size_dsc), byteorder='little')
@@ -116,12 +132,13 @@ async def upload_and_collect(args, model_bytes, expected_len):
         mtu = client.mtu_size
         print(f"MTU set to {mtu}", file=sys.stderr)
 
+        print(f"Writing model... ", file=sys.stderr, end="")
         pos = 0
         while pos < len(model_bytes):
             buf = model_bytes[pos: pos + model_chr.max_write_without_response_size]
             await client.write_gatt_char(model_chr, buf)
             pos += len(buf)
-        print("Finished writing model", file=sys.stderr)
+        print("finished", file=sys.stderr)
 
         await client.write_gatt_descriptor(model_pos_dsc, int.to_bytes(0, length=4, byteorder='little'))
         read_data = bytearray()
