@@ -15,7 +15,7 @@
 
 static const char tag[] = APP_TAG "-ml-service";
 
-struct ble_client_buffer ml_model_buffer = BLE_CLIENT_BUFFER_INIT;
+struct ble_client_buffer ml_model_buffer = BLE_CLIENT_BUFFER_INIT("model");
 
 void ml_result_notify_send(uint32_t sequence_n,
                            const int8_t *features, size_t features_len,
@@ -67,20 +67,24 @@ void ml_result_notify_send(uint32_t sequence_n,
       return;
     }
 
+    uint32_t pos = sent;
     uint32_t remain = body_len;
-    if (sent < features_len) {
-      uint32_t n = features_len - sent;
-      if (n > remain) n = remain;
-      remain -= n;
 
-      if (os_mbuf_append(om, features + sent, n) != 0) {
+    if (pos < features_len) {
+      uint32_t n = features_len - pos;
+      if (n > remain) n = remain;
+
+      if (os_mbuf_append(om, features + pos, n) != 0) {
         os_mbuf_free_chain(om);
         return;
       }
+
+      pos += n;
+      remain -= n;
     }
 
-    if (remain > 0 && sent > features_len) {
-      uint32_t result_offset = sent - features_len;
+    if (remain > 0) {
+      uint32_t result_offset = pos - features_len;
       if (os_mbuf_append(om, result + result_offset, remain) != 0) {
         os_mbuf_free_chain(om);
         return;

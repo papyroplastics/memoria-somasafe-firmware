@@ -25,6 +25,10 @@ void ppg_ring_release_read(void) {
   ring_buffer_release_read(&ppg_ring);
 }
 
+void ppg_ring_wait_data() {
+  ring_buffer_wait_data(&ppg_ring);
+}
+
 #define UART_PORT   UART_NUM_0
 #define UART_TX_PIN 43
 #define UART_RX_PIN 44
@@ -54,30 +58,32 @@ static void uart_write_all(const uint8_t *buf, size_t len) {
   uart_write_bytes(UART_PORT, buf, len);
 }
 
-// Flush stale channel data before streaming: send marker + our nonce, scan
-// the incoming stream for the same marker + nonce echoed back, then echo the
-// host's nonce that follows it.
+// Respond to host-initiated handshake: scan for the host's marker, read its
+// nonce, echo marker + nonce + our nonce back, then consume the host's echo
+// of our nonce before data streaming begins.
 static void uart_handshake(void) {
-  uint8_t expect[8];
-  uint32_t nonce = esp_random();
-  memcpy(expect, uart_marker, sizeof(uart_marker));
-  memcpy(expect + sizeof(uart_marker), &nonce, sizeof(nonce));
-
-  uart_write_all(expect, sizeof(expect));
-
   size_t matched = 0;
-  while (matched < sizeof(expect)) {
+  while (matched < sizeof(uart_marker)) {
     uint8_t b;
     uart_read_all(&b, 1);
-    if (b == expect[matched]) matched++;
-    else matched = (b == expect[0]) ? 1 : 0;
+    if (b == uart_marker[matched]) matched++;
+    else matched = (b == uart_marker[0]) ? 1 : 0;
   }
 
   uint8_t host_nonce[4];
   uart_read_all(host_nonce, sizeof(host_nonce));
-  uart_write_all(host_nonce, sizeof(host_nonce));
 
-  ESP_LOGI(tag, "UART handshake complete");
+  uint32_t esp_nonce = esp_random();
+  uint8_t reply[sizeof(uart_marker) + sizeof(host_nonce) + sizeof(esp_nonce)];
+  memcpy(reply, uart_marker, sizeof(uart_marker));
+  memcpy(reply + sizeof(uart_marker), host_nonce, sizeof(host_nonce));
+  memcpy(reply + sizeof(uart_marker) + sizeof(host_nonce), &esp_nonce, sizeof(esp_nonce));
+  uart_write_all(reply, sizeof(reply));
+
+  uint8_t echo[sizeof(esp_nonce)];
+  uart_read_all(echo, sizeof(echo));
+
+  ESP_LOGI(tag, "UART handshake complete\n");
 }
 
 // Read one sample cycle (2 PPG + 1 ACC floats + postfix byte) and ack it by
@@ -135,6 +141,7 @@ void ppg_task(void *param) {
     }
 
     if (ppg_idx >= PPG_SLICE_PPG_COUNT) {
+      ESP_LOGI(tag, "finished writing sample %d", slice->sequence_n);
       slice->end_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
       ring_buffer_release_write(&ppg_ring);
       slice = NULL;

@@ -18,7 +18,9 @@
 #include "ml/features.h"
 #include "ml/service.h"
 #include "ml/infer.h"
+#include "portmacro.h"
 #include "ppg/sensor.h"
+#include "sdkconfig.h"
 #include "tensorflow/lite/c/c_api_types.h"
 
 static const char tag[] = APP_TAG "-ml-infer";
@@ -100,46 +102,67 @@ void ml_task(void *param) {
 
   static float features[ML_N_FEATURES];
 
+  bool model_invalid = true;
+  int batch_size;
+  int n_features;
+
   for (;;) {
+    ESP_LOGI(tag, "starting inference interation");
+
     bool dirty = ble_client_buffer_lock(&ml_model_buffer);
+    ESP_LOGI(tag, "locked %s model buffer", dirty ? "dirty" : "clean");
+
     if (dirty) {
+      ESP_LOGI(tag, "building interpreter from dirty model buffer");
+      model_invalid = true;
       ml_error_code err = ml_build_interpreter(ml_model_buffer.data);
-      if (err != ML_ERR_NONE) {
-        ble_client_buffer_unlock(&ml_model_buffer);
+
+      if (err != ML_ERR_NONE || interpreter == NULL) {
+        ESP_LOGE(tag, "interpreter failed to build with code %d", err);
         ml_error_notify_send(err);
-        vTaskDelay(pdMS_TO_TICKS(500));
+
+        ble_client_invalidate(&ml_model_buffer);
         continue;
       }
-    }
 
-    if (interpreter == NULL) {
-      ble_client_buffer_unlock(&ml_model_buffer);
-      vTaskDelay(pdMS_TO_TICKS(500));
+      batch_size = input_tensor->dims->data[0];
+      n_features = input_tensor->dims->data[1];
+
+      if (batch_size != ML_BATCH_SIZE || n_features != ML_N_FEATURES) {
+        ESP_LOGE(tag, "invalid model input signature shape: batch_size=%d n_features=%d", 
+            batch_size, n_features);
+        ml_error_notify_send(ML_ERR_INVALID_SHAPE);
+
+        ble_client_invalidate(&ml_model_buffer);
+        continue;
+      }
+
+      model_invalid = false;
+      ESP_LOGI(tag, "interpreter succesfuly validated");
+
+    } else if (model_invalid) {
+      ESP_LOGE(tag, "locked clean invalid model, this branch should never occur");
+      ble_client_invalidate(&ml_model_buffer);
       continue;
     }
 
-    int batch_size = input_tensor->dims->data[0];
-    int n_features = (input_tensor->dims->size >= 2) ? input_tensor->dims->data[1] : 1;
-    if (batch_size <= 0 || n_features != ML_N_FEATURES) {
-      ble_client_buffer_unlock(&ml_model_buffer);
-      ml_error_notify_send(ML_ERR_INVALID_SHAPE);
-      vTaskDelay(pdMS_TO_TICKS(500));
-      continue;
-    }
-
+    ESP_LOGI(tag, "obtaining data sample");
     struct ppg_slice *slice = NULL;
     if (!ppg_ring_acquire_read(&slice)) {
+      ESP_LOGI(tag, "ppg ring buffer empty, waiting for data");
       ble_client_buffer_unlock(&ml_model_buffer);
-      vTaskDelay(pdMS_TO_TICKS(100));
+      ppg_ring_wait_data();
       continue;
     }
 
     uint32_t sequence_n = slice->sequence_n;
+    ESP_LOGI(tag, "acquired sample %d from ring buffer", sequence_n);
 
     ml_extract_features(slice, features);
     ppg_ring_release_read();
-
     ml_normalize_features(features);
+
+    ESP_LOGI(tag, "finished feature extraction on sample %d", sequence_n);
 
     // Fill first batch element; pad the remainder with zero_point.
     for (int i = 0; i < batch_size; i++) {
@@ -150,13 +173,18 @@ void ml_task(void *param) {
       }
     }
 
+    ESP_LOGI(tag, "performing inference on sample %d", sequence_n);
+
     TfLiteStatus status = interpreter->Invoke();
     ble_client_buffer_unlock(&ml_model_buffer);
 
     if (status != kTfLiteOk) {
+      ESP_LOGE(tag, "inference returned error status %d", status);
       ml_error_notify_send(ML_ERR_INVOKE);
       continue;
     }
+
+    ESP_LOGI(tag, "finished inference on sample %d", sequence_n);
 
     ml_result_notify_send(sequence_n,
                      input_tensor->data.int8, input_tensor->bytes,

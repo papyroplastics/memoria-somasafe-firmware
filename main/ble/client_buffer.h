@@ -28,12 +28,13 @@ enum buffer_access_state {
 };
 
 struct ble_client_buffer {
+  char* name;
+
   uint8_t *data;
   uint32_t pos;
   uint32_t size;
-
+  enum buffer_access_state state;
   bool dirty;
-  bool ready;
 
   pthread_mutex_t mutex;
   pthread_cond_t cond;
@@ -42,14 +43,15 @@ struct ble_client_buffer {
   uint16_t state_chr_handle;
 };
 
-#define BLE_CLIENT_BUFFER_INIT \
+#define BLE_CLIENT_BUFFER_INIT(module) \
   { \
+    .name = (module), \
+    \
     .data = NULL, \
     .pos = 0, \
     .size = 0, \
-    \
+    .state = BUF_ACC_NOT_READY, \
     .dirty = true, \
-    .ready = false, \
     \
     .mutex = PTHREAD_MUTEX_INITIALIZER, \
     .cond = PTHREAD_COND_INITIALIZER, \
@@ -75,43 +77,45 @@ bool ble_client_buffer_try_use(struct ble_client_buffer *buffer,
     ble_client_buffer_use_cb cb, void *arg);
 bool ble_client_buffer_lock(struct ble_client_buffer *buffer);
 bool ble_client_buffer_try_lock(struct ble_client_buffer *buffer, bool *dirty_out);
+
+void ble_client_invalidate(struct ble_client_buffer *buffer);
 void ble_client_buffer_unlock(struct ble_client_buffer *buffer);
 
-#define BLE_GATT_BUFFER_CHRS_DEF(service) \
+#define BLE_GATT_BUFFER_CHRS_DEF(buffer) \
   { \
     .uuid = &ble_buffer_chr_uuid.u, \
     .access_cb = ble_client_buffer_chr_access_cb, \
-    .arg = &(service), \
+    .arg = &(buffer), \
     .descriptors = (struct ble_gatt_dsc_def[]) { \
       { \
         .uuid = &ble_buffer_size_dsc_uuid.u, \
         .att_flags = GATT_DSC_READ_FLAGS | GATT_DSC_WRITE_FLAGS, \
         .min_key_size = 0, \
         .access_cb = ble_client_buffer_size_dsc_access_cb, \
-        .arg = &(service), \
+        .arg = &(buffer), \
       }, \
       { \
         .uuid = &ble_buffer_pos_dsc_uuid.u, \
         .att_flags = GATT_DSC_READ_FLAGS | GATT_DSC_WRITE_FLAGS, \
         .min_key_size = 0, \
         .access_cb = ble_client_buffer_pos_dsc_access_cb, \
-        .arg = &(service), \
+        .arg = &(buffer), \
       }, \
       {0}, \
     }, \
     .flags = GATT_CHR_READ_FLAGS | GATT_CHR_WRITE_FLAGS, \
     .min_key_size = 0, \
-    .val_handle = &(service).chr_handle, \
+    .val_handle = &(buffer).chr_handle, \
     .cpfd = NULL, \
   }, \
   { \
     .uuid = &ble_buffer_state_chr_uuid.u, \
     .access_cb = ble_client_buffer_state_chr_access_cb, \
-    .arg = &(service), \
+    .arg = &(buffer), \
     .descriptors = NULL, \
     .flags = GATT_CHR_READ_FLAGS | GATT_CHR_WRITE_FLAGS | GATT_CHR_NOTIFY_FLAGS, \
     .min_key_size = 0, \
-    .val_handle = &(service).state_chr_handle, \
+    .val_handle = &(buffer).state_chr_handle, \
     .cpfd = NULL, \
   }
 
@@ -119,4 +123,4 @@ void ble_client_buffer_unlock(struct ble_client_buffer *buffer);
 }  // extern "C"
 #endif
 
-#endif  // BLE_CLIENT_BUFFER_H
+#endif // BLE_CLIENT_BUFFER_H

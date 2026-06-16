@@ -7,6 +7,7 @@
 extern "C" {
 #endif
 
+#define ML_BATCH_SIZE 1
 #define ML_N_FEATURES 17
 
 // Call once at startup before any ml_extract_features call.
@@ -29,4 +30,4 @@ void ml_normalize_features(float *features);
 }
 #endif
 
-#endif  // ML_FEATURES_H
+#endif // ML_FEATURES_H

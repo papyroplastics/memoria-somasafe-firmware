@@ -14,4 +14,4 @@ int sha256_compute(const uint8_t *data, size_t len,
     uint8_t out[SHA256_DIGEST_LENGTH]);
 struct sha_str sha256_to_hex(const uint8_t checksum[SHA256_DIGEST_LENGTH]);
 
-#endif  // SHA_UTILS_H
+#endif // SHA_UTILS_H

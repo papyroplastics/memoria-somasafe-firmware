@@ -1,3 +1,4 @@
+#include <pthread.h>
 #include <stdlib.h>
 #include <stdint.h>
 
@@ -95,7 +96,7 @@ static void buffer_state_reset_work(void *arg) {
   struct ble_client_buffer *buffer = arg;
 
   pthread_mutex_lock(&buffer->mutex);
-  buffer->ready = false;
+  buffer->state = BUF_ACC_NOT_READY;
   pthread_mutex_unlock(&buffer->mutex);
 
   ble_gatts_chr_updated(buffer->state_chr_handle);
@@ -103,7 +104,7 @@ static void buffer_state_reset_work(void *arg) {
 
 bool ble_client_buffer_lock(struct ble_client_buffer *buffer) {
   pthread_mutex_lock(&buffer->mutex);
-  while (!buffer->ready) {
+  while (buffer->state == BUF_ACC_NOT_READY) {
     pthread_cond_wait(&buffer->cond, &buffer->mutex);
   }
 
@@ -117,17 +118,25 @@ bool ble_client_buffer_try_lock(struct ble_client_buffer *buffer, bool *dirty_ou
     return false;
   }
 
-  if (!buffer->ready) {
+  if (buffer->state == BUF_ACC_NOT_READY) {
     pthread_mutex_unlock(&buffer->mutex);
     return false;
   }
 
-  bool dirty = buffer->dirty;
-  buffer->dirty = false;
+  ESP_LOGI(tag, "try-locked client buffer \"%s\" with dirty=%d", buffer->name, buffer->dirty);
+
   if (dirty_out != NULL) {
-    *dirty_out = dirty;
+    *dirty_out = buffer->dirty;
   }
+  buffer->dirty = false;
   return true;
+}
+
+void ble_client_invalidate(struct ble_client_buffer *buffer) {
+  ESP_LOGI(tag, "invalidating client buffer \"%s\"", buffer->name);
+  buffer->state = BUF_ACC_NOT_READY;
+  pthread_mutex_unlock(&buffer->mutex);
+  ble_gatts_chr_updated(buffer->state_chr_handle);
 }
 
 void ble_client_buffer_unlock(struct ble_client_buffer *buffer) {
@@ -164,7 +173,7 @@ static int ble_client_buffer_write(struct ble_client_buffer *buffer, struct os_m
   }
 
   int err = 0;
-  if (buffer->ready) {
+  if (buffer->state == BUF_ACC_READY) {
     err = BLE_ATT_ERR_WRITE_NOT_PERMITTED;
     goto out;
   }
@@ -175,8 +184,8 @@ static int ble_client_buffer_write(struct ble_client_buffer *buffer, struct os_m
   }
 
   if (buffer->data == NULL || buffer->pos + value_len > buffer->size) {
-    ESP_LOGE(tag, "invalid write, pos: %d, len: %d, size: %d", 
-        buffer->pos, value_len, buffer->size);
+    ESP_LOGE(tag, "invalid write on buffer \"%s\", pos: %d, len: %d, size: %d", 
+        buffer->name, buffer->pos, value_len, buffer->size);
     err = BLE_ATT_ERR_INSUFFICIENT_RES;
     goto out;
   }
@@ -201,7 +210,7 @@ static int ble_client_buffer_set_size(struct ble_client_buffer *buffer, uint32_t
     return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
   }
 
-  if (buffer->ready) {
+  if (buffer->state == BUF_ACC_READY) {
     err = BLE_ATT_ERR_WRITE_NOT_PERMITTED;
     goto out;
   }
@@ -228,12 +237,12 @@ static int ble_client_buffer_set_size(struct ble_client_buffer *buffer, uint32_t
 
   if (buffer->data == NULL) {
     buffer->size = 0;
-    ESP_LOGE(tag, "failed to allocate %d bytes for client buffer", size);
+    ESP_LOGE(tag, "failed to allocate %d bytes for client buffer \"%s\"", buffer->name, size);
     err = BLE_ATT_ERR_INSUFFICIENT_RES;
     goto out;
   }
 
-  ESP_LOGI(tag, "set buffer size to %d", size);
+  ESP_LOGI(tag, "set buffer size to %d on buffer \"%s\"", size, buffer->name);
   buffer->size = size;
 
 out:
@@ -246,7 +255,7 @@ static int ble_client_buffer_set_pos(struct ble_client_buffer *buffer, uint32_t 
     return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
   }
 
-  if (buffer->ready) {
+  if (buffer->state == BUF_ACC_READY) {
     pthread_mutex_unlock(&buffer->mutex);
     return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
   }
@@ -275,7 +284,7 @@ int ble_client_buffer_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
       return ble_client_buffer_write(buffer, ctxt->om);
 
     default:
-      ESP_LOGE(tag, "illegal operation to buffer chr with code: %d", ctxt->op);
+      ESP_LOGE(tag, "illegal operation on buffer \"%s\" with code: %d", buffer->name, ctxt->op);
       return BLE_ATT_ERR_UNLIKELY;
   }
 }
@@ -300,7 +309,8 @@ int ble_client_buffer_size_dsc_access_cb(uint16_t conn_handle, uint16_t attr_han
       return ble_client_buffer_set_size(buffer, size);
     }
     default:
-      ESP_LOGE(tag, "illegal operation to buffer size dsc with code: %d", ctxt->op);
+      ESP_LOGE(tag, "illegal operation to buffer \"%s\" size dsc with code: %d", 
+          buffer->name, ctxt->op);
       return BLE_ATT_ERR_UNLIKELY;
   }
 }
@@ -324,7 +334,8 @@ int ble_client_buffer_pos_dsc_access_cb(uint16_t conn_handle, uint16_t attr_hand
       return ble_client_buffer_set_pos(buffer, pos);
     }
     default:
-      ESP_LOGE(tag, "illegal operation to buffer pos dsc with code: %d", ctxt->op);
+      ESP_LOGE(tag, "illegal operation to buffer \"%s\" pos dsc with code: %d",
+          buffer->name, ctxt->op);
       return BLE_ATT_ERR_UNLIKELY;
   }
 }
@@ -339,9 +350,9 @@ int ble_client_buffer_state_chr_access_cb(uint16_t conn_handle, uint16_t attr_ha
   switch (ctxt->op) {
     case BLE_GATT_ACCESS_OP_READ_CHR:
       if (pthread_mutex_trylock(&buffer->mutex) == 0) {
-        uint8_t state = buffer->ready ? BUF_ACC_READY : BUF_ACC_NOT_READY;
+        int err = append_u8(ctxt->om, buffer->state);
         pthread_mutex_unlock(&buffer->mutex);
-        return append_u8(ctxt->om, state);
+        return err;
       }
       return append_u8(ctxt->om, BUF_ACC_READY);
 
@@ -354,26 +365,36 @@ int ble_client_buffer_state_chr_access_cb(uint16_t conn_handle, uint16_t attr_ha
 
       switch (state) {
         case BUF_ACC_NOT_READY:
+          ESP_LOGI(tag, "setting buffer \"%s\" state to NOT_READY", buffer->name);
           if (worker_queue_push_task(buffer_state_reset_work, buffer) != 0) {
             return BLE_ATT_ERR_UNLIKELY;
           }
           return 0;
 
         case BUF_ACC_READY:
-          if (pthread_mutex_trylock(&buffer->mutex)) {
-            buffer->ready = true;
-            pthread_cond_broadcast(&buffer->cond);
-            pthread_mutex_unlock(&buffer->mutex);
+          if (pthread_mutex_trylock(&buffer->mutex) != 0) {
+            ESP_LOGE(tag, "client re-wrote ready state on buffer \"%s\"", buffer->name);
+            return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
+
+          } else if (buffer->data == NULL) {
+            ESP_LOGE(tag, "client tried to ready empty buffer \"%s\"", buffer->name);
+            return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
           }
+
+          ESP_LOGI(tag, "setting buffer \"%s\" state to READY", buffer->name);
+          buffer->state = BUF_ACC_READY;
+          pthread_cond_signal(&buffer->cond);
+          pthread_mutex_unlock(&buffer->mutex);
           return 0;
 
         default:
-          ESP_LOGE(tag, "client wrote illegal state %d", state);
+          ESP_LOGE(tag, "client wrote illegal state %d on buffer \"%s\"", state, buffer->name);
           return BLE_ATT_ERR_VALUE_NOT_ALLOWED;
       }
     }
     default:
-      ESP_LOGE(tag, "illegal operation to buffer state chr with code: %d", ctxt->op);
+      ESP_LOGE(tag, "illegal operation on buffer \"%s\" state chr with code: %d", 
+          buffer->name, ctxt->op);
       return BLE_ATT_ERR_UNLIKELY;
   }
 }

@@ -1,3 +1,4 @@
+#include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -25,9 +26,10 @@ void *ring_buffer_acquire_write(struct ring_buffer *rb) {
     }
 
     if (next_idx == rb->read_idx) {
-      pthread_mutex_lock(&rb->read_mutex);
       rb->read_idx = SIZE_MAX;
-      pthread_mutex_unlock(&rb->read_mutex);
+
+      // lock read mutex to make sure it's not being used
+      if (pthread_mutex_trylock(&rb->read_mutex)) pthread_mutex_unlock(&rb->read_mutex);
     }
   }
 
@@ -39,6 +41,7 @@ void *ring_buffer_acquire_write(struct ring_buffer *rb) {
 }
 
 void ring_buffer_release_write(struct ring_buffer *rb) {
+  pthread_cond_signal(&rb->wait_cond);
   pthread_mutex_unlock(&rb->write_mutex);
 }
 
@@ -73,4 +76,10 @@ bool ring_buffer_acquire_read(struct ring_buffer *rb, void **slice_out) {
 
 void ring_buffer_release_read(struct ring_buffer *rb) {
   pthread_mutex_unlock(&rb->read_mutex);
+}
+
+void ring_buffer_wait_data(struct ring_buffer *rb) {
+  pthread_mutex_lock(&rb->mutex);
+  pthread_cond_wait(&rb->wait_cond, &rb->mutex);
+  pthread_mutex_unlock(&rb->mutex);
 }

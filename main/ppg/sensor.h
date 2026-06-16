@@ -28,9 +28,10 @@ void ppg_task(void *param);
 
 bool ppg_ring_acquire_read(struct ppg_slice **slice_out);
 void ppg_ring_release_read(void);
+void ppg_ring_wait_data();
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif  // PPG_SENSOR_H
+#endif // PPG_SENSOR_H

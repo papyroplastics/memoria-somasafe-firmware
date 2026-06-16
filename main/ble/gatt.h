@@ -81,4 +81,4 @@ void ble_gatt_subscribe_cb(uint16_t attr_handle, uint8_t notify);
 #error "security level must be 0-3"
 #endif
 
-#endif  // BLE_GATT_H
+#endif // BLE_GATT_H

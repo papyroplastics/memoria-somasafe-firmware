@@ -9,4 +9,4 @@ int worker_init(void);
 void worker_task(void *param);
 int worker_queue_push_task(worker_task_cb cb, void *arg);
 
-#endif  // UTILS_WORKER_H
+#endif // UTILS_WORKER_H

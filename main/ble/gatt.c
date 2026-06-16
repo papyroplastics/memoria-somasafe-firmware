@@ -109,7 +109,7 @@ static struct ble_gatt_svc_def gatt_svcs[] = {
 void ble_gatt_subscribe_cb(uint16_t attr_handle, uint8_t notify) {
   if (attr_handle == ppg_data_chr_handle) {
     ppg_data_chr_notify = notify;
-  } else if (attr_handle == ml_result_chr_notify) {
+  } else if (attr_handle == ml_result_chr_handle) {
     ml_result_chr_notify = notify;
   } else if (attr_handle == ml_errors_chr_handle) {
     ml_errors_chr_notify = notify;

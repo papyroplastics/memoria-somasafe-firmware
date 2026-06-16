@@ -24,4 +24,4 @@ bool ble_gap_check_conn_encrypted(uint16_t conn_handle);
 #define ASSERT_ENCRYPYED()
 #endif
 
-#endif  // BLE_GAP_H
+#endif // BLE_GAP_H

@@ -24,34 +24,21 @@ def read_exact(port, n):
 
 
 def handshake(port):
-    """Flush stale channel data: scan for the ESP's marker + nonce, echo it
-    back along with our own nonce, and wait for ours to be echoed. A wrong
-    echo means the marker match was stale data, so those bytes are re-scanned."""
-    pending = bytearray()
+    """Send marker + nonce to the ESP, wait for them echoed back, then echo
+    the ESP's nonce to confirm both sides are in sync."""
+    script_nonce = os.urandom(4)
+    port.write(MARKER + script_nonce)
 
-    def get_bytes(n):
-        take = bytearray(pending[:n])
-        del pending[:n]
-        if len(take) < n:
-            take.extend(read_exact(port, n - len(take)))
-        return bytes(take)
-
+    expect = MARKER + script_nonce
     window = bytearray()
     while True:
-        window.extend(get_bytes(1))
-        del window[:-len(MARKER)]
-        if bytes(window) != MARKER:
-            continue
+        window.extend(read_exact(port, 1))
+        del window[:-len(expect)]
+        if bytes(window) == expect:
+            break
 
-        esp_nonce = get_bytes(4)
-        script_nonce = os.urandom(4)
-        port.write(MARKER + esp_nonce + script_nonce)
-        echo = get_bytes(4)
-        if echo == script_nonce:
-            return
-
-        pending[:0] = esp_nonce + echo
-        window.clear()
+    esp_nonce = read_exact(port, 4)
+    port.write(esp_nonce)
 
 
 def main():
@@ -92,7 +79,7 @@ def main():
     )
     time.sleep(0.1)
 
-    print("Waiting for ESP handshake (restart the ESP if it hangs here)...")
+    print("Initiating handshake with ESP (restart the ESP if it hangs here)...")
     handshake(port)
     print("Handshake complete")
 

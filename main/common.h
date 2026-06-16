@@ -3,4 +3,4 @@
 
 #define APP_TAG "somasafe-firmware"
 
-#endif  // COMMON_H
+#endif // COMMON_H

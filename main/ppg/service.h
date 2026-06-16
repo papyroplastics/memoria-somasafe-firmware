@@ -19,4 +19,4 @@ void ppg_data_notify_send(const float *ppg, uint16_t ppg_count,
 }
 #endif
 
-#endif  // PPG_SERVICE_H
+#endif // PPG_SERVICE_H

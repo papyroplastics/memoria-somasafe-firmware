@@ -15,6 +15,7 @@ struct ring_buffer {
   pthread_mutex_t mutex;
   pthread_mutex_t read_mutex;
   pthread_mutex_t write_mutex;
+  pthread_cond_t wait_cond;
   void *slices;
   size_t slice_size;
   size_t capacity;
@@ -30,6 +31,7 @@ struct ring_buffer {
     .mutex = PTHREAD_MUTEX_INITIALIZER,              \
     .read_mutex = PTHREAD_MUTEX_INITIALIZER,         \
     .write_mutex = PTHREAD_MUTEX_INITIALIZER,        \
+    .wait_cond = PTHREAD_COND_INITIALIZER,           \
     .slices = name##_slices,                         \
     .slice_size = sizeof(type),                      \
     .capacity = (count),                             \
@@ -44,8 +46,10 @@ void ring_buffer_release_write(struct ring_buffer *rb);
 bool ring_buffer_acquire_read(struct ring_buffer *rb, void **slice_out);
 void ring_buffer_release_read(struct ring_buffer *rb);
 
+void ring_buffer_wait_data(struct ring_buffer *rb);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif
 
-#endif  // UTILS_RING_BUFFER_H
+#endif // UTILS_RING_BUFFER_H

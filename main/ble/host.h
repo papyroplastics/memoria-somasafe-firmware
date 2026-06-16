@@ -18,4 +18,4 @@ void ble_task(void *param);
 
 int ble_work_queue_push_task(void (*cb)(void *), void *arg);
 
-#endif  // BLE_HOST_H
+#endif // BLE_HOST_H
