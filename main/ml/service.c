@@ -1,10 +1,8 @@
-#include <esp_log.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
 #include <host/ble_att.h>
 #include <host/ble_hs.h>
-#include <os/os_mbuf.h>
 
 #include "common.h"
 #include "ble/gap.h"
@@ -12,8 +10,7 @@
 #include "ble/host.h"
 #include "ml/service.h"
 #include "ble/client_buffer.h"
-
-static const char tag[] = APP_TAG "-ml-service";
+#include "utils/packet_builder.h"
 
 struct ble_client_buffer ml_model_buffer = BLE_CLIENT_BUFFER_INIT("model");
 
@@ -32,71 +29,30 @@ void ml_result_notify_send(uint32_t sequence_n,
 
   uint16_t max_payload = mtu - 3;
 
-  const size_t data_total = features_len + result_len;
+  const struct packet_segment segments[] = {
+    { (const uint8_t *)features, features_len },
+    { (const uint8_t *)result,   result_len },
+  };
+  const uint32_t data_total = features_len + result_len;
 
-  bool is_start = true;
-  size_t sent = 0;
+  // Start packet: type byte 1 followed by the slice sequence number.
+  uint8_t hdr[5];
+  hdr[0] = 1;
+  memcpy(hdr + 1, &sequence_n, sizeof(sequence_n));
 
+  uint32_t sent = 0;
+  if (!packet_builder_send(conn, ml_result_chr_handle, hdr, sizeof(hdr),
+      segments, 2, max_payload, &sent)) {
+    return;
+  }
+
+  // Continuation packets: a single type byte 0.
+  uint8_t cont_hdr = 0;
   while (sent < data_total) {
-    uint8_t hdr[5];
-    uint8_t hdr_len;
-
-    if (is_start) {
-      hdr[0] = 1;
-      memcpy(hdr + 1, &sequence_n, sizeof(sequence_n));
-      hdr_len = 5;
-      is_start = false;
-
-    } else {
-      hdr[0] = 0;
-      hdr_len = 1;
-    }
-
-    size_t body_capacity = max_payload - hdr_len;
-    size_t body_len = data_total - sent;
-    if (body_len > body_capacity) body_len = body_capacity;
-
-    struct os_mbuf *om = os_msys_get_pkthdr(hdr_len + body_len, 0);
-    if (om == NULL) {
-      ESP_LOGE(tag, "failed to allocate notify mbuf");
+    if (!packet_builder_send(conn, ml_result_chr_handle, &cont_hdr, sizeof(cont_hdr),
+        segments, 2, max_payload, &sent)) {
       return;
     }
-
-    if (os_mbuf_append(om, hdr, hdr_len) != 0) {
-      os_mbuf_free_chain(om);
-      return;
-    }
-
-    uint32_t pos = sent;
-    uint32_t remain = body_len;
-
-    if (pos < features_len) {
-      uint32_t n = features_len - pos;
-      if (n > remain) n = remain;
-
-      if (os_mbuf_append(om, features + pos, n) != 0) {
-        os_mbuf_free_chain(om);
-        return;
-      }
-
-      pos += n;
-      remain -= n;
-    }
-
-    if (remain > 0) {
-      uint32_t result_offset = pos - features_len;
-      if (os_mbuf_append(om, result + result_offset, remain) != 0) {
-        os_mbuf_free_chain(om);
-        return;
-      }
-    }
-
-    int err = ble_gatts_notify_custom(conn, ml_result_chr_handle, om);
-    if (err != 0) {
-      ESP_LOGW(tag, "ppg data notification failed with reason %d", err);
-    }
-
-    sent += body_len;
   }
 }
 
