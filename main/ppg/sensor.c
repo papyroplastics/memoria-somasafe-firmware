@@ -96,6 +96,31 @@ static void get_sample(float ppg[2], float acc[1]) {
   uart_write_all(&buf[sizeof(buf) - 1], 1);
 }
 
+static uint32_t now_ms(void) {
+  return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+}
+
+// Read one second of data (64 PPG + 32 ACC samples) into the `sec`-th slot of
+// the slice, one sample cycle at a time.
+static void get_second(struct ppg_slice *slice, uint16_t sec) {
+  uint16_t ppg_base = sec * PPG_SAMPLE_RATE;
+  uint16_t acc_base = sec * PPG_ACC_RATE;
+  for (uint16_t i = 0; i < PPG_SAMPLE_RATE; i += 2) {
+    get_sample(&slice->ppg[ppg_base + i], &slice->acc[acc_base + i / 2]);
+  }
+}
+
+// Notify the `sec`-th second of the slice over BLE. duration is only meaningful
+// (and only sent) on the window-end call, by which point end_ms is set.
+static void send_second(struct transaction_state *tx, const struct ppg_slice *slice,
+                        uint16_t sec, bool window_start, bool window_end) {
+  ppg_data_notify_send(tx,
+      &slice->ppg[sec * PPG_SAMPLE_RATE], PPG_SAMPLE_RATE,
+      &slice->acc[sec * PPG_ACC_RATE], PPG_ACC_RATE,
+      window_start, window_end, slice->sequence_n,
+      slice->end_ms - slice->start_ms);
+}
+
 void ppg_task(void *param) {
   (void)param;
 
@@ -109,47 +134,34 @@ void ppg_task(void *param) {
 
   uart_handshake();
 
-  struct ppg_slice *slice = NULL;
-  uint16_t ppg_idx = 0;
-  uint16_t acc_idx = 0;
   uint32_t next_sequence_n = 0;
 
   // One transaction per slice; reused across slices so transaction ids advance.
   struct transaction_state ppg_tx = TRANSACTION_STATE_INIT;
 
   for (;;) {
-    if (slice == NULL) {
-      slice = ring_buffer_acquire_write(&ppg_ring);
-      ppg_idx = 0;
-      acc_idx = 0;
-      slice->sequence_n = next_sequence_n++;
-      slice->start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    struct ppg_slice *slice = ring_buffer_acquire_write(&ppg_ring);
+    slice->sequence_n = next_sequence_n++;
+    slice->start_ms = now_ms();
+
+    // First second opens the transaction.
+    get_second(slice, 0);
+    send_second(&ppg_tx, slice, 0, true, false);
+
+    // Middle seconds are plain continuations.
+    for (uint16_t sec = 1; sec < PPG_SLICE_SECONDS - 1; sec++) {
+      get_second(slice, sec);
+      send_second(&ppg_tx, slice, sec, false, false);
     }
 
-    // Each cycle: 2 PPG samples at 64 Hz, 1 ACC sample at 32 Hz
-    get_sample(&slice->ppg[ppg_idx], &slice->acc[acc_idx]);
-    ppg_idx += 2;
-    acc_idx += 1;
+    // Last second closes the transaction and carries the acquisition time.
+    uint16_t last = PPG_SLICE_SECONDS - 1;
+    get_second(slice, last);
+    slice->end_ms = now_ms();
+    send_second(&ppg_tx, slice, last, false, true);
 
-    // Every second (64 PPG samples), notify the connected client
-    if (ppg_idx % PPG_SAMPLE_RATE == 0) {
-      uint16_t sec_ppg = ppg_idx - PPG_SAMPLE_RATE;
-      uint16_t sec_acc = acc_idx - PPG_ACC_RATE;
-      bool window_end = (ppg_idx >= PPG_SLICE_PPG_COUNT);
-      ppg_data_notify_send(
-        &ppg_tx,
-        &slice->ppg[sec_ppg], PPG_SAMPLE_RATE,
-        &slice->acc[sec_acc], PPG_ACC_RATE,
-        window_end, slice->sequence_n
-      );
-    }
-
-    if (ppg_idx >= PPG_SLICE_PPG_COUNT) {
-      ESP_LOGI(tag, "finished writing sample %d", slice->sequence_n);
-      slice->end_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-      ring_buffer_release_write(&ppg_ring);
-      slice = NULL;
-    }
+    ESP_LOGI(tag, "finished writing sample %d", slice->sequence_n);
+    ring_buffer_release_write(&ppg_ring);
   }
 
   ESP_LOGE(tag, "PPG task exited unexpectedly");

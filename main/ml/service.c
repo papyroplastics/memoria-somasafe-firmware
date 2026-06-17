@@ -44,7 +44,7 @@ void ml_result_notify_send(uint32_t sequence_n,
   };
 
   notif_transaction_send(&ml_result_tx, conn, ml_result_chr_handle,
-      segments, 3, /*start_segment_count=*/1, max_payload, /*end=*/true);
+      segments, 3, max_payload, /*start=*/true, /*end=*/true);
 }
 
 void ml_error_notify_send(enum ml_error_code code) {

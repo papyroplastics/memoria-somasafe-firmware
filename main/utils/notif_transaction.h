@@ -34,7 +34,8 @@ struct packet_segment {
 
 // Per-transaction bookkeeping owned by the caller. Allocate one, keep it alive
 // across every send that belongs to the same transaction, and never read or
-// write its fields directly. Zero-initialize before first use.
+// write its fields directly. Zero-initialize before first use. `active` only
+// guards against misuse (continuing before starting, or starting twice).
 struct transaction_state {
   uint8_t transaction_id;  // id shared by the current transaction's packets
   uint8_t sequence_n;      // next reconstruction sequence number to emit
@@ -43,19 +44,14 @@ struct transaction_state {
 
 #define TRANSACTION_STATE_INIT ((struct transaction_state){0})
 
-// Send the concatenated segment stream over chr_handle, fragmenting it across
-// as many notifications as the MTU requires and prepending the reconstruction
-// header to each.
+// Send the concatenated segment stream over chr_handle as part of a transaction,
+// fragmenting it across as many notifications as the MTU requires and prepending
+// the reconstruction header to each. The layer treats the segments as opaque
+// bytes; any service framing (headers, tails) is just more segments.
 //
-// A new transaction is started automatically when `st` is not active; when
-// `end` is true the transaction is closed (END flag on the last packet, `st`
-// marked inactive) regardless of the send outcome, so the next call starts a
-// fresh transaction.
-//
-// The first `start_segment_count` segments are service-layer start metadata:
-// they are emitted only on the transaction's first packet and skipped on
-// continuations. Pass them on every call; the layer decides when to include
-// them, keeping `st` opaque to the caller.
+// `start` opens a new transaction (fresh id, sequence reset); `end` closes it
+// (END flag on the last packet) regardless of the send outcome. A single-call
+// transaction passes both. Continuations pass neither.
 //
 // On a notification build/send failure the call aborts early and returns false;
 // the client drops the transaction on the resulting sequence gap (no ACK).
@@ -63,7 +59,6 @@ bool notif_transaction_send(
     struct transaction_state *st,
     uint16_t conn, uint16_t chr_handle,
     const struct packet_segment *segments, size_t segment_count,
-    size_t start_segment_count,
-    uint16_t max_payload, bool end);
+    uint16_t max_payload, bool start, bool end);
 
 #endif // UTILS_NOTIF_TRANSACTION

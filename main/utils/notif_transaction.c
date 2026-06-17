@@ -53,29 +53,25 @@ bool notif_transaction_send(
     struct transaction_state *st,
     uint16_t conn, uint16_t chr_handle,
     const struct packet_segment *segments, size_t segment_count,
-    size_t start_segment_count,
-    uint16_t max_payload, bool end) {
+    uint16_t max_payload, bool start, bool end) {
 
   if (max_payload <= NOTIF_TXN_HEADER_LEN) {
     ESP_LOGE(tag, "MTU too small for a reconstruction header");
     return false;
   }
 
-  bool start = !st->active;
   if (start) {
+    if (st->active) ESP_LOGE(tag, "starting a transaction while one is in flight");
     st->transaction_id++;
     st->sequence_n = 0;
     st->active = true;
+  } else if (!st->active) {
+    ESP_LOGE(tag, "continuing a transaction that was never started");
   }
 
-  // Start-only segments (service metadata) ride only on the first packet of the
-  // transaction; continuations carry just the body segments.
-  const struct packet_segment *body = start ? segments : segments + start_segment_count;
-  size_t body_count = start ? segment_count : segment_count - start_segment_count;
-
   uint32_t data_total = 0;
-  for (size_t i = 0; i < body_count; i++) {
-    data_total += body[i].len;
+  for (size_t i = 0; i < segment_count; i++) {
+    data_total += segments[i].len;
   }
 
   uint16_t body_capacity = max_payload - NOTIF_TXN_HEADER_LEN;
@@ -98,7 +94,7 @@ bool notif_transaction_send(
 
     uint8_t header[NOTIF_TXN_HEADER_LEN] = { flags, st->transaction_id, st->sequence_n };
 
-    struct os_mbuf *om = build_packet(header, body, body_count, sent, body_len);
+    struct os_mbuf *om = build_packet(header, segments, segment_count, sent, body_len);
     if (om == NULL) {
       ESP_LOGE(tag, "failed to build notification packet");
       ok = false;

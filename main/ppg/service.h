@@ -13,12 +13,16 @@ extern "C" {
 // Send one second of raw PPG and ACC data as BLE notifications. The whole
 // 8-second window is one reconstruction-layer transaction; `tx` is owned by the
 // caller and reused across every second of the window (and across windows).
-// window_end: true only for the last call of each window, closing the transaction.
+// window_start/window_end: mark the first and last call of each window, opening
+// and closing the transaction.
 // sequence_n: slice sequence number, carried in the service header on the first call.
+// duration_ms: time taken to acquire the window, carried in the service tail on
+// the last call.
 void ppg_data_notify_send(struct transaction_state *tx,
                      const float *ppg, uint16_t ppg_count,
                      const float *acc, uint16_t acc_count,
-                     bool window_end, uint32_t sequence_n);
+                     bool window_start, bool window_end,
+                     uint32_t sequence_n, uint32_t duration_ms);
 
 #ifdef __cplusplus
 }

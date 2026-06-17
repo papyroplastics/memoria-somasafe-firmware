@@ -14,7 +14,8 @@
 void ppg_data_notify_send(struct transaction_state *tx,
                           const float *ppg, uint16_t ppg_count,
                           const float *acc, uint16_t acc_count,
-                          bool window_end, uint32_t sequence_n) {
+                          bool window_start, bool window_end,
+                          uint32_t sequence_n, uint32_t duration_ms) {
 
   if (!ppg_data_chr_notify) return;
 
@@ -28,17 +29,22 @@ void ppg_data_notify_send(struct transaction_state *tx,
 
   uint16_t max_payload = mtu - 3;
 
-  // Service header (start-only): slice duration + slice sequence number.
+  // Service framing: a header on the first call (slice duration unit + sequence
+  // number) and a tail on the last call (actual acquisition time in ms).
   uint8_t svc_hdr[1 + sizeof(sequence_n)];
   svc_hdr[0] = PPG_SLICE_SECONDS;
   memcpy(svc_hdr + 1, &sequence_n, sizeof(sequence_n));
 
-  const struct packet_segment segments[] = {
-    { svc_hdr, sizeof(svc_hdr) },
-    { (const uint8_t *)ppg, ppg_count * sizeof(float) },
-    { (const uint8_t *)acc, acc_count * sizeof(float) },
-  };
+  uint8_t svc_tail[sizeof(duration_ms)];
+  memcpy(svc_tail, &duration_ms, sizeof(duration_ms));
+
+  struct packet_segment segments[4];
+  size_t n = 0;
+  if (window_start) segments[n++] = (struct packet_segment){ svc_hdr, sizeof(svc_hdr) };
+  segments[n++] = (struct packet_segment){ (const uint8_t *)ppg, ppg_count * sizeof(float) };
+  segments[n++] = (struct packet_segment){ (const uint8_t *)acc, acc_count * sizeof(float) };
+  if (window_end) segments[n++] = (struct packet_segment){ svc_tail, sizeof(svc_tail) };
 
   notif_transaction_send(tx, conn, ppg_data_chr_handle,
-      segments, 3, /*start_segment_count=*/1, max_payload, window_end);
+      segments, n, max_payload, window_start, window_end);
 }
