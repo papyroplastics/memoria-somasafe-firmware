@@ -110,15 +110,15 @@ static void get_second(struct ppg_slice *slice, uint16_t sec) {
   }
 }
 
-// Notify the `sec`-th second of the slice over BLE. duration is only meaningful
-// (and only sent) on the window-end call, by which point end_ms is set.
+// Notify the `sec`-th second of the slice over BLE. end_ms is only meaningful
+// (and only sent) on the window-end call, by which point it is set.
 static void send_second(struct transaction_state *tx, const struct ppg_slice *slice,
                         uint16_t sec, bool window_start, bool window_end) {
   ppg_data_notify_send(tx,
       &slice->ppg[sec * PPG_SAMPLE_RATE], PPG_SAMPLE_RATE,
       &slice->acc[sec * PPG_ACC_RATE], PPG_ACC_RATE,
       window_start, window_end, slice->sequence_n,
-      slice->end_ms - slice->start_ms);
+      slice->start_ms, slice->end_ms);
 }
 
 void ppg_task(void *param) {

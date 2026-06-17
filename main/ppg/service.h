@@ -16,13 +16,13 @@ extern "C" {
 // window_start/window_end: mark the first and last call of each window, opening
 // and closing the transaction.
 // sequence_n: slice sequence number, carried in the service header on the first call.
-// duration_ms: time taken to acquire the window, carried in the service tail on
-// the last call.
+// start_ms/end_ms: on-device acquisition timestamps (device-uptime ms), carried
+// in the service header (start) and tail (end) respectively.
 void ppg_data_notify_send(struct transaction_state *tx,
                      const float *ppg, uint16_t ppg_count,
                      const float *acc, uint16_t acc_count,
                      bool window_start, bool window_end,
-                     uint32_t sequence_n, uint32_t duration_ms);
+                     uint32_t sequence_n, uint32_t start_ms, uint32_t end_ms);
 
 #ifdef __cplusplus
 }

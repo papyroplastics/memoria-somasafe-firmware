@@ -15,7 +15,7 @@ void ppg_data_notify_send(struct transaction_state *tx,
                           const float *ppg, uint16_t ppg_count,
                           const float *acc, uint16_t acc_count,
                           bool window_start, bool window_end,
-                          uint32_t sequence_n, uint32_t duration_ms) {
+                          uint32_t sequence_n, uint32_t start_ms, uint32_t end_ms) {
 
   if (!ppg_data_chr_notify) return;
 
@@ -30,13 +30,15 @@ void ppg_data_notify_send(struct transaction_state *tx,
   uint16_t max_payload = mtu - 3;
 
   // Service framing: a header on the first call (slice duration unit + sequence
-  // number) and a tail on the last call (actual acquisition time in ms).
-  uint8_t svc_hdr[1 + sizeof(sequence_n)];
+  // number + on-device start timestamp) and a tail on the last call (on-device
+  // end timestamp). Timestamps are device-uptime milliseconds.
+  uint8_t svc_hdr[1 + sizeof(sequence_n) + sizeof(start_ms)];
   svc_hdr[0] = PPG_SLICE_SECONDS;
   memcpy(svc_hdr + 1, &sequence_n, sizeof(sequence_n));
+  memcpy(svc_hdr + 1 + sizeof(sequence_n), &start_ms, sizeof(start_ms));
 
-  uint8_t svc_tail[sizeof(duration_ms)];
-  memcpy(svc_tail, &duration_ms, sizeof(duration_ms));
+  uint8_t svc_tail[sizeof(end_ms)];
+  memcpy(svc_tail, &end_ms, sizeof(end_ms));
 
   struct packet_segment segments[4];
   size_t n = 0;
