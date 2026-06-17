@@ -24,3 +24,9 @@ qemu: ${BIN}
 format:
 	clang-format -i ${SRC} ${HDR}
 
+
+test-model:
+	uv run -m scripts.test_model models/feature-mlp/post-train-opti.tflite datasets --results=50
+
+seria-write:
+	uv run -m scripts.serial_write /dev/ttyACM1 datasets --rate=1000

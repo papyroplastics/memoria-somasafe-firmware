@@ -107,13 +107,12 @@ void ml_task(void *param) {
   int n_features;
 
   for (;;) {
-    ESP_LOGI(tag, "starting inference interation");
+    ESP_LOGD(tag, "starting inference interation");
 
     bool dirty = ble_client_buffer_lock(&ml_model_buffer);
     ESP_LOGI(tag, "locked %s model buffer", dirty ? "dirty" : "clean");
 
     if (dirty) {
-      ESP_LOGI(tag, "building interpreter from dirty model buffer");
       model_invalid = true;
       ml_error_code err = ml_build_interpreter(ml_model_buffer.data);
 
@@ -146,7 +145,7 @@ void ml_task(void *param) {
       continue;
     }
 
-    ESP_LOGI(tag, "obtaining data sample");
+    ESP_LOGD(tag, "obtaining data sample");
     struct ppg_slice *slice = NULL;
     if (!ppg_ring_acquire_read(&slice)) {
       ESP_LOGI(tag, "ppg ring buffer empty, waiting for data");
@@ -156,13 +155,13 @@ void ml_task(void *param) {
     }
 
     uint32_t sequence_n = slice->sequence_n;
-    ESP_LOGI(tag, "acquired sample %d from ring buffer", sequence_n);
+    ESP_LOGD(tag, "acquired sample %d from ring buffer", sequence_n);
 
     ml_extract_features(slice, features);
     ppg_ring_release_read();
     ml_normalize_features(features);
 
-    ESP_LOGI(tag, "finished feature extraction on sample %d", sequence_n);
+    ESP_LOGD(tag, "finished feature extraction on sample %d", sequence_n);
 
     // Fill first batch element; pad the remainder with zero_point.
     for (int i = 0; i < batch_size; i++) {
@@ -173,7 +172,7 @@ void ml_task(void *param) {
       }
     }
 
-    ESP_LOGI(tag, "performing inference on sample %d", sequence_n);
+    ESP_LOGD(tag, "performing inference on sample %d", sequence_n);
 
     TfLiteStatus status = interpreter->Invoke();
     ble_client_buffer_unlock(&ml_model_buffer);

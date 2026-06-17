@@ -9,11 +9,12 @@
 #include "ble/host.h"
 #include "ppg/sensor.h"
 #include "ppg/service.h"
-#include "utils/packet_builder.h"
+#include "utils/notif_transaction.h"
 
-void ppg_data_notify_send(const float *ppg, uint16_t ppg_count,
+void ppg_data_notify_send(struct transaction_state *tx,
+                          const float *ppg, uint16_t ppg_count,
                           const float *acc, uint16_t acc_count,
-                          bool window_start, uint32_t sequence_n) {
+                          bool window_end, uint32_t sequence_n) {
 
   if (!ppg_data_chr_notify) return;
 
@@ -27,38 +28,17 @@ void ppg_data_notify_send(const float *ppg, uint16_t ppg_count,
 
   uint16_t max_payload = mtu - 3;
 
+  // Service header (start-only): slice duration + slice sequence number.
+  uint8_t svc_hdr[1 + sizeof(sequence_n)];
+  svc_hdr[0] = PPG_SLICE_SECONDS;
+  memcpy(svc_hdr + 1, &sequence_n, sizeof(sequence_n));
+
   const struct packet_segment segments[] = {
+    { svc_hdr, sizeof(svc_hdr) },
     { (const uint8_t *)ppg, ppg_count * sizeof(float) },
     { (const uint8_t *)acc, acc_count * sizeof(float) },
   };
-  const uint32_t data_total = segments[0].len + segments[1].len;
 
-  // First packet: window-start packets carry type byte 1 + slice seconds +
-  // sequence number, otherwise just the continuation type byte 0.
-  uint8_t hdr[6];
-  uint8_t hdr_len;
-  if (window_start) {
-    hdr[0] = 1u;
-    hdr[1] = PPG_SLICE_SECONDS;
-    memcpy(hdr + 2, &sequence_n, sizeof(sequence_n));
-    hdr_len = 6u;
-  } else {
-    hdr[0] = 0u;
-    hdr_len = 1u;
-  }
-
-  uint32_t sent = 0;
-  if (!packet_builder_send(conn, ppg_data_chr_handle, hdr, hdr_len,
-      segments, 2, max_payload, &sent)) {
-    return;
-  }
-
-  // Remaining packets: a single continuation type byte 0.
-  uint8_t cont_hdr = 0u;
-  while (sent < data_total) {
-    if (!packet_builder_send(conn, ppg_data_chr_handle, &cont_hdr, sizeof(cont_hdr),
-        segments, 2, max_payload, &sent)) {
-      return;
-    }
-  }
+  notif_transaction_send(tx, conn, ppg_data_chr_handle,
+      segments, 3, /*start_segment_count=*/1, max_payload, window_end);
 }

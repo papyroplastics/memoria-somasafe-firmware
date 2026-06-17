@@ -10,9 +10,13 @@
 #include "ble/host.h"
 #include "ml/service.h"
 #include "ble/client_buffer.h"
-#include "utils/packet_builder.h"
+#include "utils/notif_transaction.h"
 
 struct ble_client_buffer ml_model_buffer = BLE_CLIENT_BUFFER_INIT("model");
+
+// Each result is a complete single-call transaction; the state persists across
+// calls only to advance the transaction id.
+static struct transaction_state ml_result_tx = TRANSACTION_STATE_INIT;
 
 void ml_result_notify_send(uint32_t sequence_n,
                            const int8_t *features, size_t features_len,
@@ -29,31 +33,18 @@ void ml_result_notify_send(uint32_t sequence_n,
 
   uint16_t max_payload = mtu - 3;
 
+  // Service header (start-only): the slice sequence number.
+  uint8_t svc_hdr[sizeof(sequence_n)];
+  memcpy(svc_hdr, &sequence_n, sizeof(sequence_n));
+
   const struct packet_segment segments[] = {
+    { svc_hdr, sizeof(svc_hdr) },
     { (const uint8_t *)features, features_len },
     { (const uint8_t *)result,   result_len },
   };
-  const uint32_t data_total = features_len + result_len;
 
-  // Start packet: type byte 1 followed by the slice sequence number.
-  uint8_t hdr[5];
-  hdr[0] = 1;
-  memcpy(hdr + 1, &sequence_n, sizeof(sequence_n));
-
-  uint32_t sent = 0;
-  if (!packet_builder_send(conn, ml_result_chr_handle, hdr, sizeof(hdr),
-      segments, 2, max_payload, &sent)) {
-    return;
-  }
-
-  // Continuation packets: a single type byte 0.
-  uint8_t cont_hdr = 0;
-  while (sent < data_total) {
-    if (!packet_builder_send(conn, ml_result_chr_handle, &cont_hdr, sizeof(cont_hdr),
-        segments, 2, max_payload, &sent)) {
-      return;
-    }
-  }
+  notif_transaction_send(&ml_result_tx, conn, ml_result_chr_handle,
+      segments, 3, /*start_segment_count=*/1, max_payload, /*end=*/true);
 }
 
 void ml_error_notify_send(enum ml_error_code code) {

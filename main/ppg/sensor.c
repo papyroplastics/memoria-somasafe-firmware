@@ -114,6 +114,9 @@ void ppg_task(void *param) {
   uint16_t acc_idx = 0;
   uint32_t next_sequence_n = 0;
 
+  // One transaction per slice; reused across slices so transaction ids advance.
+  struct transaction_state ppg_tx = TRANSACTION_STATE_INIT;
+
   for (;;) {
     if (slice == NULL) {
       slice = ring_buffer_acquire_write(&ppg_ring);
@@ -132,11 +135,12 @@ void ppg_task(void *param) {
     if (ppg_idx % PPG_SAMPLE_RATE == 0) {
       uint16_t sec_ppg = ppg_idx - PPG_SAMPLE_RATE;
       uint16_t sec_acc = acc_idx - PPG_ACC_RATE;
-      bool window_start = (sec_ppg == 0);
+      bool window_end = (ppg_idx >= PPG_SLICE_PPG_COUNT);
       ppg_data_notify_send(
+        &ppg_tx,
         &slice->ppg[sec_ppg], PPG_SAMPLE_RATE,
         &slice->acc[sec_acc], PPG_ACC_RATE,
-        window_start, slice->sequence_n
+        window_end, slice->sequence_n
       );
     }
 

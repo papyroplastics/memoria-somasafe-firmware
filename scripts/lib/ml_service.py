@@ -5,6 +5,7 @@ from bleak import BleakClient
 
 from .ble_common import ML_RESULTS_CHR_UUID, ML_ERRORS_CHR_UUID
 from .client_buf import ClientBuffer
+from .notif_transaction import TransactionReassembler
 
 ML_ERROR_NAMES = {
     0: "NONE",
@@ -19,11 +20,12 @@ ML_ERROR_NAMES = {
 class MlService:
     """Collects inference results notified by the firmware ML service.
 
-    Each result is the [features | score] int8 stream framed across
-    notifications: the first packet starts with a 1 byte followed by the
-    4-byte little-endian sample sequence number, continuation packets start
-    with a 0 byte.
+    Each result is one reconstruction-layer transaction (see notif_transaction)
+    whose reassembled payload is the service stream: a 4-byte little-endian
+    sample sequence number followed by the [features | score] int8 data.
     """
+
+    SEQUENCE_LEN = 4
 
     def __init__(self, client: BleakClient, buffer: ClientBuffer,
                  features_len: int, score_len: int):
@@ -40,34 +42,32 @@ class MlService:
         Returns a list of (sequence_n, features, score) tuples where features
         and score are the raw int8 byte strings for one sample.
         """
-        expected_len = self.features_len + self.score_len
+        data_len = self.SEQUENCE_LEN + self.features_len + self.score_len
         results = []
         done = asyncio.Event()
 
-        sequence_n = None
-        reassembly = bytearray()
+        reasm = TransactionReassembler()
 
         def on_result(_, data: bytearray):
-            nonlocal sequence_n, reassembly
             if done.is_set():
                 return
 
-            if data[0] == 1:
-                if sequence_n is not None:
-                    print(f"WARNING: dropped incomplete result for sequence {sequence_n}", file=sys.stderr)
-                sequence_n = int.from_bytes(data[1:5], byteorder='little')
-                reassembly = bytearray(data[5:])
-            elif sequence_n is not None:
-                reassembly.extend(data[1:])
+            payload = reasm.feed(bytes(data))
+            if payload is None:
+                return
 
-            if sequence_n is not None and len(reassembly) >= expected_len:
-                features = bytes(reassembly[:self.features_len])
-                score = bytes(reassembly[self.features_len:expected_len])
-                results.append((sequence_n, features, score))
-                print(f"Received result {len(results)}/{result_n} (sequence {sequence_n})", file=sys.stderr)
-                sequence_n = None
-                if len(results) >= result_n:
-                    done.set()
+            if len(payload) != data_len:
+                print(f"WARNING: dropped result with unexpected length {len(payload)} (expected {data_len})", file=sys.stderr)
+                return
+
+            sequence_n = int.from_bytes(payload[:self.SEQUENCE_LEN], byteorder='little')
+            body = payload[self.SEQUENCE_LEN:]
+            features = bytes(body[:self.features_len])
+            score = bytes(body[self.features_len:])
+            results.append((sequence_n, features, score))
+            print(f"Received result {len(results)}/{result_n} (sequence {sequence_n})", file=sys.stderr)
+            if len(results) >= result_n:
+                done.set()
 
         def on_error(_, data: bytearray):
             code = data[0]
