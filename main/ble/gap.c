@@ -315,6 +315,10 @@ int ble_gap_advert_config(void) {
   set_adv_fields(&adv_fields, tx_power, &ble_addr);
 
 #if !EXT_ADV_LEGACY_PDU
+  adv_fields.uuids128 = svc_uuid128;
+  adv_fields.num_uuids128 = svc_uuid128_cnt;
+  adv_fields.uuids128_is_complete = 1;
+
   set_rsp_fields(&adv_fields);
 #endif
 

@@ -267,6 +267,7 @@ static int ble_client_buffer_set_pos(struct ble_client_buffer *buffer, uint32_t 
   }
 
   pthread_mutex_unlock(&buffer->mutex);
+  ESP_LOGI(tag, "set buffer position to %d on byffer \"%s\" ", buffer->pos, buffer->name);
   return 0;
 }
 

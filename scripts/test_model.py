@@ -49,7 +49,7 @@ def main():
             description="Upload a .tflite model over BLE and compare on-device "
                         "inference results against the feature dataset.")
 
-    parser.add_argument('model', type=Path, default=Path('models/feature-mlp/post-train-opti.tflite'),
+    parser.add_argument('model', type=Path, default=Path('models/feature-mlp/quantized.tflite'),
                         help=".tflite model file")
     parser.add_argument('datasets_dir', type=Path, default=Path('datasets'),
                         help="datasets directory (contains feature-anomaly)")
