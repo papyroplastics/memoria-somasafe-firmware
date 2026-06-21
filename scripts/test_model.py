@@ -38,6 +38,7 @@ async def upload_and_collect(model_bytes, n_results, quant):
         await negotiate_mtu(client)
 
         buffer = ClientBuffer(client, attrs)
+        await buffer.start()
         await buffer.upload(model_bytes)
 
         ml = MlService(client, buffer, quant.input.size, quant.output.size)

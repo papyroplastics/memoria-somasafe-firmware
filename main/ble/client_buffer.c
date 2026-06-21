@@ -139,6 +139,13 @@ void ble_client_invalidate(struct ble_client_buffer *buffer) {
   ble_gatts_chr_updated(buffer->state_chr_handle);
 }
 
+void ble_client_buffer_reset(struct ble_client_buffer *buffer) {
+  ESP_LOGI(tag, "resetting client buffer \"%s\" to NOT_READY", buffer->name);
+  buffer->state = BUF_ACC_NOT_READY;
+  pthread_mutex_unlock(&buffer->mutex);
+  ble_gatts_chr_updated(buffer->state_chr_handle);
+}
+
 void ble_client_buffer_unlock(struct ble_client_buffer *buffer) {
   pthread_mutex_unlock(&buffer->mutex);
 }

@@ -11,6 +11,7 @@
 #include "ble/gap.h"
 #include "ble/gatt.h"
 #include "ble/client_buffer.h"
+#include "device/service.h"
 #include "ml/service.h"
 
 static const char tag[] = APP_TAG "-gatt";
@@ -47,8 +48,21 @@ const ble_uuid128_t ml_errors_chr_uuid = BLE_UUID128_INIT(
     0xa5, 0x6e, 0x25, 0x5a, 0x42, 0x8c, 0x8b, 0x9c
 );
 
-const ble_uuid128_t svc_uuid128[] = { ppg_svc_uuid, ml_svc_uuid };
-const uint8_t svc_uuid128_cnt = sizeof(svc_uuid128) / sizeof(*svc_uuid128);
+// Device service
+const ble_uuid128_t device_svc_uuid = BLE_UUID128_INIT(
+    0x2c, 0x9a, 0x55, 0xe1, 0x7b, 0x84, 0x4f, 0x3d,
+    0xa1, 0x6e, 0x0d, 0xb2, 0x91, 0x5c, 0x38, 0xd7
+);
+
+uint16_t device_sign_chr_handle;
+uint8_t device_sign_chr_notify;
+const ble_uuid128_t device_sign_chr_uuid = BLE_UUID128_INIT(
+    0x4f, 0x1d, 0x8b, 0x63, 0xc2, 0x05, 0x47, 0xa9,
+    0x90, 0x33, 0x7e, 0x6c, 0xb8, 0x14, 0xf2, 0x0a
+);
+
+const ble_uuid128_t adv_svc_uuid128[] = { ppg_svc_uuid, ml_svc_uuid, device_svc_uuid };
+const uint8_t adv_svc_uuid128_cnt = sizeof(adv_svc_uuid128) / sizeof(*adv_svc_uuid128);
 
 static int noop_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
     struct ble_gatt_access_ctxt *ctxt, void *arg);
@@ -102,6 +116,25 @@ static struct ble_gatt_svc_def gatt_svcs[] = {
       {0},
     }
   },
+  {
+    .type = BLE_GATT_SVC_TYPE_PRIMARY,
+    .uuid = &device_svc_uuid.u,
+    .includes = NULL,
+    .characteristics = (struct ble_gatt_chr_def[]) {
+      {
+        .uuid = &device_sign_chr_uuid.u,
+        .access_cb = noop_chr_access_cb,
+        .arg = "device signature",
+        .descriptors = NULL,
+        .flags = GATT_CHR_NOTIFY_FLAGS,
+        .min_key_size = 0,
+        .val_handle = &device_sign_chr_handle,
+        .cpfd = 0,
+      },
+      BLE_GATT_BUFFER_CHRS_DEF(device_sign_buffer),
+      {0},
+    }
+  },
   {0},
 };
 // clang-format on
@@ -113,6 +146,8 @@ void ble_gatt_subscribe_cb(uint16_t attr_handle, uint8_t notify) {
     ml_result_chr_notify = notify;
   } else if (attr_handle == ml_errors_chr_handle) {
     ml_errors_chr_notify = notify;
+  } else if (attr_handle == device_sign_chr_handle) {
+    device_sign_chr_notify = notify;
   }
 }
 

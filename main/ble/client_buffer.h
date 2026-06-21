@@ -79,6 +79,7 @@ bool ble_client_buffer_lock(struct ble_client_buffer *buffer);
 bool ble_client_buffer_try_lock(struct ble_client_buffer *buffer, bool *dirty_out);
 
 void ble_client_invalidate(struct ble_client_buffer *buffer);
+void ble_client_buffer_reset(struct ble_client_buffer *buffer);
 void ble_client_buffer_unlock(struct ble_client_buffer *buffer);
 
 #define BLE_GATT_BUFFER_CHRS_DEF(buffer) \

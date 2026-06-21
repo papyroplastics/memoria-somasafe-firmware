@@ -15,8 +15,11 @@ extern uint8_t ml_errors_chr_notify;
 extern uint16_t ml_result_chr_handle;
 extern uint16_t ml_errors_chr_handle;
 
-extern const ble_uuid128_t svc_uuid128[];
-extern const uint8_t       svc_uuid128_cnt;
+extern uint8_t device_sign_chr_notify;
+extern uint16_t device_sign_chr_handle;
+
+extern const ble_uuid128_t adv_svc_uuid128[];
+extern const uint8_t       adv_svc_uuid128_cnt;
 
 int ble_gatt_task_prepare(void);
 int ble_gatt_notify_chr(uint16_t chr_handle, const uint8_t *payload, uint16_t payload_len);

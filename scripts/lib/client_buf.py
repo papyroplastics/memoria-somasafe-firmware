@@ -22,6 +22,11 @@ class ClientBuffer:
     Drives a single buffer (data characteristic plus state/size/pos attributes),
     picking its attributes out of the {uuid: attribute} dict returned by
     discover_attributes.
+
+    The state characteristic is kept mirrored in self.state: start() reads it
+    once and subscribes to its notifications, so consumer-driven transitions on
+    the device (e.g. the buffer being reset to NOT_READY after a task reads it)
+    are reflected here without polling.
     """
 
     def __init__(self, client: BleakClient, attrs: dict):
@@ -31,32 +36,51 @@ class ClientBuffer:
         self.state_chr = attrs[BUF_STATE_CHR_UUID]
         self.size_dsc = attrs[BUF_SIZE_DSC_UUID]
         self.pos_dsc = attrs[BUF_POS_DSC_UUID]
+        self.state = None
+        self._state_changed = asyncio.Event()
+
+    def _on_state(self, _, data: bytearray):
+        self.state = int.from_bytes(data, byteorder='little')
+        self._state_changed.set()
+
+    async def start(self):
+        """Subscribe to state notifications and read the current state.
+
+        Must be called once after construction before set_size/write/set_state.
+        (__init__ can't await, so the initial read lives here.)
+        """
+        await self.client.start_notify(self.state_chr, self._on_state)
+        data = await self.client.read_gatt_char(self.state_chr)
+        self.state = int.from_bytes(data, byteorder='little')
+        print(f"Buffer state on-device: {self.state}", file=sys.stderr)
+
+    async def wait_state(self, target: int):
+        while self.state != target:
+            self._state_changed.clear()
+            await self._state_changed.wait()
 
     async def set_state(self, state: int):
         if state == BUFFER_STATE_NOT_READY:
-            unready = asyncio.Event()
-
-            def on_state(_, data: bytearray):
-                value = int.from_bytes(data, byteorder='little')
-                if value == BUFFER_STATE_NOT_READY:
-                    unready.set()
-                else:
-                    print(f"Got unexpected buffer state update {value}", file=sys.stderr)
-
-            await self.client.start_notify(self.state_chr, on_state)
+            # The device resets asynchronously (worker task) and notifies; our
+            # subscription updates self.state, so just wait for it to land.
             await self.client.write_gatt_char(self.state_chr, u8_bytes(BUFFER_STATE_NOT_READY))
-            await unready.wait()
-            await self.client.stop_notify(self.state_chr)
+            await self.wait_state(BUFFER_STATE_NOT_READY)
             print("Buffer state set to NOT_READY", file=sys.stderr)
 
         elif state == BUFFER_STATE_READY:
+            # Readying does not notify (no state change to report back), so track
+            # it locally.
             await self.client.write_gatt_char(self.state_chr, u8_bytes(BUFFER_STATE_READY))
+            self.state = BUFFER_STATE_READY
             print("Buffer state set to READY", file=sys.stderr)
 
         else:
             raise ValueError(f"invalid buffer state {state}")
 
     async def set_size(self, size: int):
+        if self.state != BUFFER_STATE_NOT_READY:
+            raise RuntimeError(f"invalid buffer state {self.state}")
+
         await self.client.write_gatt_descriptor(self.size_dsc, u32_bytes(size))
         read = int.from_bytes(await self.client.read_gatt_descriptor(self.size_dsc), byteorder='little')
         if read != size:
@@ -65,6 +89,9 @@ class ClientBuffer:
         print(f"Buffer size on-device: {read}", file=sys.stderr)
 
     async def write(self, data: bytes):
+        if self.state != BUFFER_STATE_NOT_READY:
+            raise RuntimeError(f"invalid buffer state {self.state}")
+
         print("Writing buffer... ", file=sys.stderr, end="", flush=True)
         pos = 0
         while pos < len(data):

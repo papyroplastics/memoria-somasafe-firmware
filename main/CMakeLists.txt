@@ -2,6 +2,7 @@ file(GLOB_RECURSE ble_src "ble/*.c")
 file(GLOB_RECURSE utils_src "utils/*.c")
 file(GLOB_RECURSE ml_src  "ml/*.c" "ml/*.cc")
 file(GLOB_RECURSE ppg_src "ppg/*.c")
+file(GLOB_RECURSE device_src "device/*.c")
 
 idf_component_register(
   SRCS
@@ -10,6 +11,7 @@ idf_component_register(
     "${utils_src}"
     "${ppg_src}"
     "${ml_src}"
+    "${device_src}"
 
   PRIV_REQUIRES
     bt
