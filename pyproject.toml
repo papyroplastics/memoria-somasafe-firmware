@@ -11,6 +11,7 @@ dependencies = [
     "pyqt6==6.11.*",
     "pyserial>=3.5",
     "numpy>=2.4.6",
+    "cryptography>=44.0.0",
 ]
 
 [dependency-groups]

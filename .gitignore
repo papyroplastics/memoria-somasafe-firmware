@@ -1,11 +1,17 @@
+# Build system artifacts
 build/
 sdkconfig
 sdkconfig.old
 managed_components/
 
+# Symlinks to backend directories
 datasets
 models
 
+# Generated factory identity (serial + ECDSA keys); provision per-device
+factory_nvs.csv
+
+# Python ignores
 __pycache__/
 .venv/
 venv
