@@ -61,6 +61,12 @@ const ble_uuid128_t device_sign_chr_uuid = BLE_UUID128_INIT(
     0x90, 0x33, 0x7e, 0x6c, 0xb8, 0x14, 0xf2, 0x0a
 );
 
+uint16_t device_serial_chr_handle;
+const ble_uuid128_t device_serial_chr_uuid = BLE_UUID128_INIT(
+    0x6b, 0x29, 0xf4, 0x71, 0x3d, 0x0c, 0x4e, 0x52,
+    0x88, 0xa5, 0x1c, 0x7e, 0x9b, 0x0f, 0x33, 0xd1
+);
+
 const ble_uuid128_t adv_svc_uuid128[] = { ppg_svc_uuid, ml_svc_uuid, device_svc_uuid };
 const uint8_t adv_svc_uuid128_cnt = sizeof(adv_svc_uuid128) / sizeof(*adv_svc_uuid128);
 
@@ -129,6 +135,16 @@ static struct ble_gatt_svc_def gatt_svcs[] = {
         .flags = GATT_CHR_NOTIFY_FLAGS,
         .min_key_size = 0,
         .val_handle = &device_sign_chr_handle,
+        .cpfd = 0,
+      },
+      {
+        .uuid = &device_serial_chr_uuid.u,
+        .access_cb = device_serial_chr_access_cb,
+        .arg = NULL,
+        .descriptors = NULL,
+        .flags = GATT_CHR_READ_FLAGS,
+        .min_key_size = 0,
+        .val_handle = &device_serial_chr_handle,
         .cpfd = 0,
       },
       BLE_GATT_BUFFER_CHRS_DEF(device_sign_buffer),

@@ -26,6 +26,9 @@ qemu: ${BIN}
 format:
 	clang-format -i ${SRC} ${HDR}
 
+factory-nvs:
+	uv run -m scripts.gen_factory_nvs ../public-key.pem
+
 test-model:
 	uv run -m scripts.test_model models/feature-mlp/post-train-opti.tflite datasets --results=100
 

@@ -18,6 +18,8 @@ extern uint16_t ml_errors_chr_handle;
 extern uint8_t device_sign_chr_notify;
 extern uint16_t device_sign_chr_handle;
 
+extern uint16_t device_serial_chr_handle;
+
 extern const ble_uuid128_t adv_svc_uuid128[];
 extern const uint8_t       adv_svc_uuid128_cnt;
 
