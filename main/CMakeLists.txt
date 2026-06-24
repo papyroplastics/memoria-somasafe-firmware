@@ -28,7 +28,7 @@ idf_component_register(
 )
 
 set(_GEN_H_SCRIPT "${SCRIPTS_DIR}/gen_norm_params_h.py")
-set(_FEAT_STATS_NPY "${DATASET_DIR}/feature-anomaly/feature_stats.npy")
+set(_FEAT_STATS_NPY "${DATASET_DIR}/anomalous-features/feature_stats.npy")
 set(_NORM_PARAMS_H "${COMPONENT_DIR}/ml/norm_params.h")
 
 add_custom_command(

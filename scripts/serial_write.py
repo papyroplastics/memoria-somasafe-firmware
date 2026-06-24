@@ -46,7 +46,7 @@ def main():
         description="Stream raw anomalous PPG/ACC data over serial to the ESP32 test harness.")
     parser.add_argument('serial',       type=Path, help="Serial device (e.g. /dev/ttyUSB0)")
     parser.add_argument('datasets_dir', type=Path, default=Path('datasets'),
-                        help="datasets/ directory (contains anomalous-signals/ and subject-signals/)")
+                        help="datasets/ directory (contains mixed-signals/ and clean-signals/)")
     parser.add_argument('--subject', type=int, default=1,
                         help="Subject id to stream (default 1)")
     parser.add_argument('--rate', type=float, default=DEFAULT_RATE_HZ,
@@ -55,8 +55,8 @@ def main():
     args = parser.parse_args()
 
     sid = f'S{args.subject}'
-    bvp_path = args.datasets_dir / 'anomalous-signals' / sid / 'bvp.npy'
-    acc_path = args.datasets_dir / 'subject-signals'   / sid / 'acc_mag.npy'
+    bvp_path = args.datasets_dir / 'mixed-signals' / sid / 'bvp.npy'
+    acc_path = args.datasets_dir / 'clean-signals'   / sid / 'acc.npy'
 
     if not args.serial.exists():
         print(f"ERROR: {args.serial} does not exist", file=sys.stderr)

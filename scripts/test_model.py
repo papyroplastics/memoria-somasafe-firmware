@@ -53,7 +53,7 @@ def main():
     parser.add_argument('model', type=Path, default=Path('models/feature-mlp/quantized.tflite'),
                         help=".tflite model file")
     parser.add_argument('datasets_dir', type=Path, default=Path('datasets'),
-                        help="datasets directory (contains feature-anomaly)")
+                        help="datasets directory (contains mixed-features)")
     parser.add_argument('--subject', type=int, default=1,
                         help="Subject id being streamed by serial_write.py (default 1)")
     parser.add_argument('--results', type=int, default=10,
@@ -63,7 +63,7 @@ def main():
     model_bytes = args.model.read_bytes()
     quant = ModelQuant(model_bytes)
 
-    feature_dir = args.datasets_dir / 'feature-anomaly' / f'S{args.subject}'
+    feature_dir = args.datasets_dir / 'mixed-features' / f'S{args.subject}'
     ds_features = np.load(feature_dir / 'features.npy')
     ds_labels = np.load(feature_dir / 'labels.npy').reshape(-1)
 
