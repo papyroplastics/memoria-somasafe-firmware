@@ -19,7 +19,7 @@ struct ble_client_buffer ml_model_buffer = BLE_CLIENT_BUFFER_INIT("model");
 static struct transaction_state ml_result_tx = TRANSACTION_STATE_INIT;
 
 void ml_result_notify_send(uint32_t sequence_n,
-                           const int8_t *features, size_t features_len,
+                           const float *features, size_t features_len,
                            const int8_t *result, size_t result_len) {
   if (!ml_result_chr_notify) return;
 

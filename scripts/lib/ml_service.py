@@ -22,7 +22,8 @@ class MlService:
 
     Each result is one reconstruction-layer transaction (see notif_transaction)
     whose reassembled payload is the service stream: a 4-byte little-endian
-    sample sequence number followed by the [features | score] int8 data.
+    sample sequence number followed by [features | score], where features are
+    little-endian float32 bytes and score is int8.
     """
 
     SEQUENCE_LEN = 4
@@ -40,7 +41,8 @@ class MlService:
         """Flip the model buffer to READY and collect up to result_n results.
 
         Returns a list of (sequence_n, features, score) tuples where features
-        and score are the raw int8 byte strings for one sample.
+        are the raw float32 byte string and score the raw int8 byte string for
+        one sample.
         """
         data_len = self.SEQUENCE_LEN + self.features_len + self.score_len
         results = []

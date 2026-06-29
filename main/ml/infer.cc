@@ -3,25 +3,29 @@
 #include <cstdint>
 #include <cstring>
 
+#include <sdkconfig.h>
 #include <esp_log.h>
+#include <esp_system.h>
+
+#include <portmacro.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+
 #include <host/ble_att.h>
 #include <host/ble_gatt.h>
 #include <host/ble_hs.h>
+
+#include <tensorflow/lite/c/c_api_types.h>
 #include <tensorflow/lite/micro/micro_interpreter.h>
 #include <tensorflow/lite/micro/micro_mutable_op_resolver.h>
 
 #include "common.h"
 #include "ble/client_buffer.h"
-#include "esp_system.h"
 #include "ml/features.h"
 #include "ml/service.h"
 #include "ml/infer.h"
-#include "portmacro.h"
 #include "ppg/sensor.h"
-#include "sdkconfig.h"
-#include "tensorflow/lite/c/c_api_types.h"
+#include "ml/norm_params.h"
 
 static const char tag[] = APP_TAG "-ml-infer";
 
@@ -100,11 +104,9 @@ void ml_task(void *param) {
 
   ml_features_init();
 
-  static float features[ML_N_FEATURES];
+  static float features[ML_BATCH_SIZE * ML_N_FEATURES];
 
   bool model_invalid = true;
-  int batch_size;
-  int n_features;
 
   for (;;) {
     ESP_LOGD(tag, "starting inference interation");
@@ -124,8 +126,8 @@ void ml_task(void *param) {
         continue;
       }
 
-      batch_size = input_tensor->dims->data[0];
-      n_features = input_tensor->dims->data[1];
+      int batch_size = input_tensor->dims->data[0];
+      int n_features = input_tensor->dims->data[1];
 
       if (batch_size != ML_BATCH_SIZE || n_features != ML_N_FEATURES) {
         ESP_LOGE(tag, "invalid model input signature shape: batch_size=%d n_features=%d", 
@@ -163,13 +165,10 @@ void ml_task(void *param) {
 
     ESP_LOGD(tag, "finished feature extraction on sample %d", sequence_n);
 
-    // Fill first batch element; pad the remainder with zero_point.
-    for (int i = 0; i < batch_size; i++) {
-      for (int j = 0; j < n_features; j++) {
-        int8_t v = (i == 0) ? quantize(features[j], input_tensor)
-                             : input_tensor->params.zero_point;
-        input_tensor->data.int8[i * n_features + j] = v;
-      }
+    // Fill input buffer.
+    for (int j = 0; j < ML_N_FEATURES; j++) {
+      int8_t v = quantize(features[j], input_tensor);
+      input_tensor->data.int8[j] = v;
     }
 
     ESP_LOGD(tag, "performing inference on sample %d", sequence_n);
@@ -186,7 +185,7 @@ void ml_task(void *param) {
     ESP_LOGI(tag, "finished inference on sample %d", sequence_n);
 
     ml_result_notify_send(sequence_n,
-                     input_tensor->data.int8, input_tensor->bytes,
+                     features, sizeof(features),
                      score_tensor->data.int8, score_tensor->bytes);
   }
 

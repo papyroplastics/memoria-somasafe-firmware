@@ -25,12 +25,12 @@ int ml_errors_chr_access_cb(uint16_t conn_handle, uint16_t attr_handle,
 
 void ml_error_notify_send(enum ml_error_code code);
 
-// Notify one inference result: the quantized input feature vector followed by
+// Notify one inference result: the float32 input feature vector followed by
 // the model's score output tensor. The result is one reconstruction-layer
 // transaction (see utils/notif_transaction.h) fragmented across notifications,
 // with the slice sequence number carried in the service header.
 void ml_result_notify_send(uint32_t sequence_n,
-                      const int8_t *features, size_t features_len,
+                      const float *features, size_t features_len,
                       const int8_t *score, size_t score_len);
 
 #ifdef __cplusplus

@@ -47,7 +47,7 @@ static void channel_stats(const float *x, int n,
     *out_mad = diff_sum / (float)(n - 1);
 }
 
-void ml_extract_features(const struct ppg_slice *slice, float features[ML_N_FEATURES]) {
+void ml_extract_features(const struct ppg_slice *slice, float* features) {
     float mean, std, mn, mx, rms, mad;
 
     // Features 0–6: BVP time-domain

@@ -41,7 +41,7 @@ async def upload_and_collect(model_bytes, n_results, quant):
         await buffer.start()
         await buffer.upload(model_bytes)
 
-        ml = MlService(client, buffer, quant.input.size, quant.output.size)
+        ml = MlService(client, buffer, quant.input.size * 4, quant.output.size)
         return await ml.get_results(n_results)
 
 
@@ -77,8 +77,8 @@ def main():
     y_true, y_pred, feature_mses = [], [], []
 
     for sequence_n, features_raw, score_raw in results:
-        features = np.frombuffer(features_raw, dtype=np.int8)
-        features = quant.input.dequantize(features.reshape(quant.batch_size, quant.n_features)[0])
+        features = np.frombuffer(features_raw, dtype=np.float32)
+        features = features.reshape(quant.batch_size, quant.n_features)[0]
 
         score = float(quant.output.dequantize(np.frombuffer(score_raw, dtype=np.int8))[0])
 
