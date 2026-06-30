@@ -104,9 +104,9 @@ void ml_extract_features(const struct ppg_slice *slice, float* features) {
     features[16] = band_power / (total_power + 1e-8f);
 }
 
-void ml_normalize_features(float *features) {
+void ml_normalize_features(const float *features, float *out_features) {
     for (int i = 0; i < ML_N_FEATURES; i++) {
-        features[i] = (features[i] - ML_FEAT_MEAN[i]) / ML_FEAT_STD[i];
+        out_features[i] = (features[i] - ML_FEAT_MEAN[i]) / ML_FEAT_STD[i];
     }
 }
 

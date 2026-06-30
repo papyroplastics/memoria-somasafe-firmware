@@ -7,9 +7,9 @@
 #include <esp_log.h>
 #include <esp_system.h>
 
-#include <portmacro.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <portmacro.h>
 
 #include <host/ble_att.h>
 #include <host/ble_gatt.h>
@@ -21,10 +21,10 @@
 
 #include "common.h"
 #include "ble/client_buffer.h"
+#include "ppg/sensor.h"
 #include "ml/features.h"
 #include "ml/service.h"
 #include "ml/infer.h"
-#include "ppg/sensor.h"
 #include "ml/norm_params.h"
 
 static const char tag[] = APP_TAG "-ml-infer";
@@ -105,6 +105,7 @@ void ml_task(void *param) {
   ml_features_init();
 
   static float features[ML_BATCH_SIZE * ML_N_FEATURES];
+  static float norm_features[ML_BATCH_SIZE * ML_N_FEATURES];
 
   bool model_invalid = true;
 
@@ -161,13 +162,14 @@ void ml_task(void *param) {
 
     ml_extract_features(slice, features);
     ppg_ring_release_read();
-    ml_normalize_features(features);
+    ml_normalize_features(features, norm_features);
 
     ESP_LOGD(tag, "finished feature extraction on sample %d", sequence_n);
 
-    // Fill input buffer.
+    // Fill input buffer from the normalized copy; `features` stays raw so the
+    // phone receives un-normalized features it can reproduce on-device.
     for (int j = 0; j < ML_N_FEATURES; j++) {
-      int8_t v = quantize(features[j], input_tensor);
+      int8_t v = quantize(norm_features[j], input_tensor);
       input_tensor->data.int8[j] = v;
     }
 
