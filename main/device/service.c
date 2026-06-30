@@ -17,7 +17,7 @@
 #include "ble/client_buffer.h"
 #include "device/service.h"
 #include "utils/ecdsa_utils.h"
-#include "utils/notif_transaction.h"
+#include "ble/notif_transaction.h"
 
 static const char tag[] = APP_TAG "-device";
 

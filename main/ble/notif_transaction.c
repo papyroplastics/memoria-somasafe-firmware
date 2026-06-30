@@ -3,7 +3,7 @@
 #include <os/os_mbuf.h>
 
 #include "common.h"
-#include "utils/notif_transaction.h"
+#include "ble/notif_transaction.h"
 
 static const char tag[] = APP_TAG "-notif-transaction";
 

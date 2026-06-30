@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "utils/notif_transaction.h"
+#include "ble/notif_transaction.h"
 
 #ifdef __cplusplus
 extern "C" {

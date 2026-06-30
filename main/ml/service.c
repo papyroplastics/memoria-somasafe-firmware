@@ -10,7 +10,7 @@
 #include "ble/host.h"
 #include "ml/service.h"
 #include "ble/client_buffer.h"
-#include "utils/notif_transaction.h"
+#include "ble/notif_transaction.h"
 
 struct ble_client_buffer ml_model_buffer = BLE_CLIENT_BUFFER_INIT("model");
 

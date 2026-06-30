@@ -9,7 +9,7 @@
 #include "ble/host.h"
 #include "ppg/sensor.h"
 #include "ppg/service.h"
-#include "utils/notif_transaction.h"
+#include "ble/notif_transaction.h"
 
 void ppg_data_notify_send(struct transaction_state *tx,
                           const float *ppg, uint16_t ppg_count,
