@@ -7,6 +7,7 @@ managed_components/
 # Symlinks to backend directories
 datasets
 models
+shared
 
 # Generated factory identity (serial + ECDSA keys); provision per-device
 factory_nvs.csv

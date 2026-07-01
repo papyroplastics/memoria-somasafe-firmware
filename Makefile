@@ -1,5 +1,7 @@
 SHELL := bash
 
+shared_repo := https://github.com/papyroplastics/memoria-somasafe-shared.git
+
 BIN := build/somasafe-firmware.bin
 SRC := $(wildcard main/*.c) $(wildcard main/*/*.c)
 HDR := $(wildcard main/*.h) $(wildcard main/*/*.h)
@@ -8,7 +10,16 @@ serial_dir := /dev/serial/by-id
 port_usb  := ${serial_dir}/usb-Espressif_USB_JTAG_serial_debug_unit_30:ED:A0:B8:BD:68-if00
 port_uart := ${serial_dir}/usb-1a86_USB_Single_Serial_5A79064524-if00
 
-.PHONY: monitor debug gfb qemu format test-model seria-write
+.PHONY: shared monitor debug gfb qemu format test-model seria-write
+shared:
+	@if [ -e shared ] || [ -L shared ]; then \
+		echo "shared already present"; \
+	elif [ -d ../shared ]; then \
+		ln -sr ../shared/ .; \
+	else \
+		git clone ${shared_repo} shared; \
+	fi
+
 monitor:
 	idf.py -p ${port_usb} flash monitor
 
@@ -27,7 +38,7 @@ format:
 	clang-format -i ${SRC} ${HDR}
 
 factory-nvs:
-	uv run -m scripts.gen_factory_nvs ../public-key.pem
+	uv run -m scripts.gen_factory_nvs shared/gen/server-public-key.pem
 
 test-model:
 	uv run -m scripts.test_model models/feature-mlp/post-train-opti.tflite datasets --results=100

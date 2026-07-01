@@ -52,7 +52,7 @@ def main():
 
     parser.add_argument('model', type=Path, default=Path('models/feature-mlp/quantized.tflite'),
                         help=".tflite model file")
-    parser.add_argument('datasets_dir', type=Path, default=Path('datasets'),
+    parser.add_argument('datasets_dir', type=Path, default=Path('shared/gen/datasets'),
                         help="datasets directory (contains mixed-features)")
     parser.add_argument('--subject', type=int, default=1,
                         help="Subject id being streamed by serial_write.py (default 1)")
