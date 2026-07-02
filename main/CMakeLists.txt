@@ -53,7 +53,8 @@ set_property(DIRECTORY "${COMPONENT_DIR}" APPEND PROPERTY ADDITIONAL_CLEAN_FILES
 # partition. If no provisioning CSV exists yet, generate a throwaway test
 # identity. Run scripts/gen_factory_nvs.py manually with real keys to provision.
 set(_FACTORY_NVS_SCRIPT "${SCRIPTS_DIR}/gen_factory_nvs.py")
-get_filename_component(_FACTORY_NVS_CSV "${COMPONENT_DIR}/../factory_nvs.csv" ABSOLUTE)
+
+get_filename_component(_FACTORY_NVS_CSV "${GENERATED_DIR}/factory_nvs.csv" ABSOLUTE)
 
 add_custom_command(
   OUTPUT
