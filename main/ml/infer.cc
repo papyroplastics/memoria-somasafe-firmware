@@ -6,6 +6,8 @@
 #include <sdkconfig.h>
 #include <esp_log.h>
 #include <esp_system.h>
+#include <nvs.h>
+#include <nvs_flash.h>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -25,9 +27,20 @@
 #include "ml/features.h"
 #include "ml/service.h"
 #include "ml/infer.h"
-#include "ml/norm_params.h"
+#include "utils/ecdsa_utils.h"
 
 static const char tag[] = APP_TAG "-ml-infer";
+
+#define FACTORY_PARTITION "factory_data"
+#define FACTORY_NAMESPACE "factory"
+#define ML_PAYLOAD_VERSION 1
+#define ML_SIGNATURE_VERSION 1
+
+// Norm params from the current model's signed payload, held across the inference
+// loop alongside the interpreter they belong to. The device z-scores features with
+// these before quantizing, since the int8 model takes already-normalized input.
+static float feat_mean[ML_N_FEATURES];
+static float feat_std[ML_N_FEATURES];
 
 static tflite::MicroMutableOpResolver<2> resolver;
 
@@ -92,6 +105,64 @@ static int8_t quantize(float value, const TfLiteTensor *tensor) {
   return (int8_t)quantized;
 }
 
+static int load_server_pubkey(uint8_t pub[ECDSA_P256_PUBKEY_LENGTH]) {
+  int err = nvs_flash_init_partition(FACTORY_PARTITION);
+  if (err != ESP_OK) {
+    ESP_LOGE(tag, "factory nvs init: %s", esp_err_to_name(err));
+    return err;
+  }
+  nvs_handle_t handle;
+  err = nvs_open_from_partition(FACTORY_PARTITION, FACTORY_NAMESPACE, NVS_READONLY, &handle);
+  if (err != ESP_OK) {
+    ESP_LOGE(tag, "factory nvs open: %s", esp_err_to_name(err));
+    return err;
+  }
+  size_t len = ECDSA_P256_PUBKEY_LENGTH;
+  err = nvs_get_blob(handle, "srv_pub", pub, &len);
+  nvs_close(handle);
+  if (err != ESP_OK) ESP_LOGE(tag, "read srv_pub: %s", esp_err_to_name(err));
+  return err;
+}
+
+// Verify the signed model payload and locate its embedded tflite, loading the norm
+// params into feat_mean/feat_std. Layout (LE): u16 sig_len | sig[sig_len] |
+// u16 payload_ver | u16 sig_ver | f32 mean[N] | f32 std[N] | tflite. The ECDSA
+// P-256 / SHA-256 signature covers everything after it (versions .. tflite).
+static ml_error_code parse_payload(const uint8_t *data, size_t size,
+                                   const uint8_t **tflite_out) {
+  const size_t norm_len = 2 * ML_N_FEATURES * sizeof(float);
+  if (data == NULL || size < 2) return ML_ERR_PAYLOAD;
+
+  uint16_t sig_len;
+  memcpy(&sig_len, data, sizeof(sig_len));
+  size_t header = 2 + (size_t)sig_len;
+  if (header + 4 + norm_len > size) return ML_ERR_PAYLOAD;   // versions + norm must fit
+
+  const uint8_t *sig  = data + 2;
+  const uint8_t *body = data + header;
+  size_t body_len = size - header;
+
+  uint8_t pub[ECDSA_P256_PUBKEY_LENGTH];
+  if (load_server_pubkey(pub) != ESP_OK) return ML_ERR_PAYLOAD;
+  if (ecdsa_verify(pub, body, body_len, sig, sig_len) != 0) {
+    ESP_LOGE(tag, "model payload signature invalid");
+    return ML_ERR_PAYLOAD;
+  }
+
+  uint16_t payload_ver, sig_ver;
+  memcpy(&payload_ver, body, sizeof(payload_ver));
+  memcpy(&sig_ver, body + 2, sizeof(sig_ver));
+  if (payload_ver != ML_PAYLOAD_VERSION || sig_ver != ML_SIGNATURE_VERSION) {
+    ESP_LOGE(tag, "unsupported payload/signature version %u/%u", payload_ver, sig_ver);
+    return ML_ERR_PAYLOAD;
+  }
+
+  memcpy(feat_mean, body + 4, ML_N_FEATURES * sizeof(float));
+  memcpy(feat_std,  body + 4 + ML_N_FEATURES * sizeof(float), ML_N_FEATURES * sizeof(float));
+  *tflite_out = body + 4 + norm_len;
+  return ML_ERR_NONE;
+}
+
 void ml_task(void *param) {
   (void)param;
 
@@ -117,7 +188,17 @@ void ml_task(void *param) {
 
     if (dirty) {
       model_invalid = true;
-      ml_error_code err = ml_build_interpreter(ml_model_buffer.data);
+
+      const uint8_t *tflite = NULL;
+      ml_error_code perr = parse_payload(ml_model_buffer.data, ml_model_buffer.size, &tflite);
+      if (perr != ML_ERR_NONE) {
+        ESP_LOGE(tag, "model payload rejected with code %d", perr);
+        ml_error_notify_send(perr);
+        ble_client_invalidate(&ml_model_buffer);
+        continue;
+      }
+
+      ml_error_code err = ml_build_interpreter(tflite);
 
       if (err != ML_ERR_NONE || interpreter == NULL) {
         ESP_LOGE(tag, "interpreter failed to build with code %d", err);
@@ -162,7 +243,7 @@ void ml_task(void *param) {
 
     ml_extract_features(slice, features);
     ppg_ring_release_read();
-    ml_normalize_features(features, norm_features);
+    ml_normalize_features(features, norm_features, feat_mean, feat_std);
 
     ESP_LOGD(tag, "finished feature extraction on sample %d", sequence_n);
 

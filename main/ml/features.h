@@ -8,6 +8,7 @@ extern "C" {
 #endif
 
 #define ML_BATCH_SIZE 1
+#define ML_N_FEATURES 17
 
 // Call once at startup before any ml_extract_features call.
 void ml_features_init(void);
@@ -21,10 +22,11 @@ void ml_features_init(void);
 //   [16]    BVP HR-band power ratio (0.7–3.5 Hz)
 void ml_extract_features(const struct ppg_slice *slice, float *features);
 
-// Z-score normalize features into out_features using the stats from norm_params.h,
-// leaving the raw features untouched (those get echoed to the phone unchanged).
-// Requires ml_norm_params.h to have been generated and placed in this directory.
-void ml_normalize_features(const float *features, float *out_features);
+// Z-score normalize ML_N_FEATURES features into out_features with the given per-feature
+// mean/std (delivered in the signed model payload), leaving the raw features untouched
+// (those get echoed to the phone unchanged).
+void ml_normalize_features(const float *features, float *out_features,
+                           const float *mean, const float *std);
 
 #ifdef __cplusplus
 }

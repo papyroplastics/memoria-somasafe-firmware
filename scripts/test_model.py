@@ -15,6 +15,7 @@ from .lib.ble_common import (
 from .lib.client_buf import ClientBuffer
 from .lib.ml_service import MlService
 from .lib.litert_util import ModelQuant
+from .lib.payload import build_payload
 
 DEV_NAME = "SomaSafe Device"
 
@@ -24,8 +25,8 @@ ATTR_UUIDS = (
 )
 
 
-async def upload_and_collect(model_bytes, n_results, quant):
-    """Connect, upload the model and collect n_results inference results."""
+async def upload_and_collect(payload, n_results, quant):
+    """Connect, upload the signed model payload and collect n_results inference results."""
     device = await BleakScanner.find_device_by_name(DEV_NAME)
     if device is None:
         print(f"Device \"{DEV_NAME}\" not found", file=sys.stderr)
@@ -39,7 +40,7 @@ async def upload_and_collect(model_bytes, n_results, quant):
 
         buffer = ClientBuffer(client, attrs)
         await buffer.start()
-        await buffer.upload(model_bytes)
+        await buffer.upload(payload)
 
         ml = MlService(client, buffer, quant.input.size * 4, quant.output.size)
         return await ml.get_results(n_results)
@@ -58,6 +59,9 @@ def main():
                         help="Subject id being streamed by serial_write.py (default 1)")
     parser.add_argument('--results', type=int, default=10,
                         help="Number of inference results to receive before stopping (default 10)")
+    parser.add_argument('--server-key', type=Path,
+                        default=Path(__file__).resolve().parent.parent / 'shared' / 'gen' / 'server-private-key.pem',
+                        help="ECDSA private key to sign the model payload with (must match the device's srv_pub)")
     args = parser.parse_args()
 
     model_bytes = args.model.read_bytes()
@@ -71,7 +75,13 @@ def main():
         print(f"Model expects {quant.n_features} features, dataset has {ds_features.shape[1]}", file=sys.stderr)
         exit(1)
 
-    results = asyncio.run(upload_and_collect(model_bytes, args.results, quant))
+    # Wrap the bare .tflite in the signed payload the firmware verifies/parses; norm
+    # params (signature version 1) are the feature mean/std the device applies pre-quant.
+    stats = np.load(args.datasets_dir / 'mixed-features' / 'feature_stats.npy')
+    norm_bytes = np.concatenate([stats[0], stats[1]]).astype('<f4').tobytes()
+    payload = build_payload(model_bytes, 1, norm_bytes, args.server_key)
+
+    results = asyncio.run(upload_and_collect(payload, args.results, quant))
 
     # Dequantize and compare against the dataset
     y_true, y_pred, feature_mses = [], [], []

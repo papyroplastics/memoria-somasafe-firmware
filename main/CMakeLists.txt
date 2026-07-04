@@ -27,28 +27,6 @@ idf_component_register(
     "."
 )
 
-set(_GEN_H_SCRIPT "${SCRIPTS_DIR}/gen_norm_params_h.py")
-set(_FEAT_STATS_NPY "${DATASET_DIR}/mixed-features/feature_stats.npy")
-set(_NORM_PARAMS_H "${COMPONENT_DIR}/ml/norm_params.h")
-
-add_custom_command(
-  OUTPUT 
-    "${_NORM_PARAMS_H}"
-  COMMAND 
-    uv run "${_GEN_H_SCRIPT}" "${_FEAT_STATS_NPY}" "${_NORM_PARAMS_H}"
-  DEPENDS 
-    "${_GEN_H_SCRIPT}"
-    "${_FEAT_STATS_NPY}"
-  COMMENT 
-    "Generating ml/norm_params.h"
-  VERBATIM
-)
-
-add_custom_target(norm_params_h DEPENDS "${_NORM_PARAMS_H}")
-add_dependencies(${COMPONENT_LIB} norm_params_h)
-
-set_property(DIRECTORY "${COMPONENT_DIR}" APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${_NORM_PARAMS_H}")
-
 # Factory NVS image: serial + device/server ECDSA keys for the factory_data
 # partition. If no provisioning CSV exists yet, generate a throwaway test
 # identity. Run scripts/gen_factory_nvs.py manually with real keys to provision.

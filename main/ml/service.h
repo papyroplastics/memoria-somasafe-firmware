@@ -16,6 +16,7 @@ enum ml_error_code {
   ML_ERR_TENSOR_ALLOC = 3,
   ML_ERR_INVOKE = 4,
   ML_ERR_INVALID_SHAPE = 5,
+  ML_ERR_PAYLOAD = 6,   // malformed / unsupported-version / bad-signature model payload
 };
 
 extern struct ble_client_buffer ml_model_buffer;
