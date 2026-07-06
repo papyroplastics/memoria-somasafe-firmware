@@ -24,6 +24,7 @@
 #include "common.h"
 #include "ble/client_buffer.h"
 #include "ppg/sensor.h"
+#include "ml/contract.h"
 #include "ml/features.h"
 #include "ml/service.h"
 #include "ml/infer.h"
@@ -33,8 +34,6 @@ static const char tag[] = APP_TAG "-ml-infer";
 
 #define FACTORY_PARTITION "factory_data"
 #define FACTORY_NAMESPACE "factory"
-#define ML_PAYLOAD_VERSION 1
-#define ML_SIGNATURE_VERSION 1
 
 // Norm params from the current model's signed payload, held across the inference
 // loop alongside the interpreter they belong to. The device z-scores features with
@@ -125,18 +124,19 @@ static int load_server_pubkey(uint8_t pub[ECDSA_P256_PUBKEY_LENGTH]) {
 }
 
 // Verify the signed model payload and locate its embedded tflite, loading the norm
-// params into feat_mean/feat_std. Layout (LE): u16 sig_len | sig[sig_len] |
-// u16 payload_ver | u16 sig_ver | f32 mean[N] | f32 std[N] | tflite. The ECDSA
-// P-256 / SHA-256 signature covers everything after it (versions .. tflite).
+// params into feat_mean/feat_std. Layout (LE, BLE interface v1): u16 sig_len |
+// sig[sig_len] | u16 contract_version | f32 mean[N] | f32 std[N] | tflite. The
+// ECDSA P-256 / SHA-256 signature covers everything after it — the server's
+// canonical signed bytes (contract_version .. tflite, shared/docs/model-signing.md).
 static ml_error_code parse_payload(const uint8_t *data, size_t size,
                                    const uint8_t **tflite_out) {
-  const size_t norm_len = 2 * ML_N_FEATURES * sizeof(float);
+  const size_t norm_len = ml_contract_norm_len();
   if (data == NULL || size < 2) return ML_ERR_PAYLOAD;
 
   uint16_t sig_len;
   memcpy(&sig_len, data, sizeof(sig_len));
   size_t header = 2 + (size_t)sig_len;
-  if (header + 4 + norm_len > size) return ML_ERR_PAYLOAD;   // versions + norm must fit
+  if (header + 2 + norm_len > size) return ML_ERR_PAYLOAD;   // contract + norm must fit
 
   const uint8_t *sig  = data + 2;
   const uint8_t *body = data + header;
@@ -149,17 +149,16 @@ static ml_error_code parse_payload(const uint8_t *data, size_t size,
     return ML_ERR_PAYLOAD;
   }
 
-  uint16_t payload_ver, sig_ver;
-  memcpy(&payload_ver, body, sizeof(payload_ver));
-  memcpy(&sig_ver, body + 2, sizeof(sig_ver));
-  if (payload_ver != ML_PAYLOAD_VERSION || sig_ver != ML_SIGNATURE_VERSION) {
-    ESP_LOGE(tag, "unsupported payload/signature version %u/%u", payload_ver, sig_ver);
+  uint16_t contract_version;
+  memcpy(&contract_version, body, sizeof(contract_version));
+  if (!ml_contract_supported(contract_version)) {
+    ESP_LOGE(tag, "unsupported contract version %u", contract_version);
     return ML_ERR_PAYLOAD;
   }
 
-  memcpy(feat_mean, body + 4, ML_N_FEATURES * sizeof(float));
-  memcpy(feat_std,  body + 4 + ML_N_FEATURES * sizeof(float), ML_N_FEATURES * sizeof(float));
-  *tflite_out = body + 4 + norm_len;
+  memcpy(feat_mean, body + 2, ML_N_FEATURES * sizeof(float));
+  memcpy(feat_std,  body + 2 + ML_N_FEATURES * sizeof(float), ML_N_FEATURES * sizeof(float));
+  *tflite_out = body + 2 + norm_len;
   return ML_ERR_NONE;
 }
 
@@ -211,7 +210,7 @@ void ml_task(void *param) {
       int batch_size = input_tensor->dims->data[0];
       int n_features = input_tensor->dims->data[1];
 
-      if (batch_size != ML_BATCH_SIZE || n_features != ML_N_FEATURES) {
+      if (!ml_contract_shape_valid(batch_size, n_features)) {
         ESP_LOGE(tag, "invalid model input signature shape: batch_size=%d n_features=%d", 
             batch_size, n_features);
         ml_error_notify_send(ML_ERR_INVALID_SHAPE);

@@ -45,7 +45,7 @@ int ble_init() {
 #if SMP_SECURITY_LEVEL > 0
   ble_hs_cfg.sm_sc = 1;
   ble_hs_cfg.sm_sc_only = 0;
-  ble_hs_cfg.sm_bonding = 0;
+  ble_hs_cfg.sm_bonding = 1;
   ble_hs_cfg.sm_sec_lvl = SMP_SECURITY_LEVEL;
 
   ble_hs_cfg.sm_our_key_dist   |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;

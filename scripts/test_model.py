@@ -76,7 +76,7 @@ def main():
         exit(1)
 
     # Wrap the bare .tflite in the signed payload the firmware verifies/parses; norm
-    # params (signature version 1) are the feature mean/std the device applies pre-quant.
+    # params (contract version 1) are the feature mean/std the device applies pre-quant.
     stats = np.load(args.datasets_dir / 'mixed-features' / 'feature_stats.npy')
     norm_bytes = np.concatenate([stats[0], stats[1]]).astype('<f4').tobytes()
     payload = build_payload(model_bytes, 1, norm_bytes, args.server_key)
