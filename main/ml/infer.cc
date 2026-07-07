@@ -6,8 +6,6 @@
 #include <sdkconfig.h>
 #include <esp_log.h>
 #include <esp_system.h>
-#include <nvs.h>
-#include <nvs_flash.h>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -29,11 +27,9 @@
 #include "ml/service.h"
 #include "ml/infer.h"
 #include "utils/ecdsa_utils.h"
+#include "utils/factory_data.h"
 
 static const char tag[] = APP_TAG "-ml-infer";
-
-#define FACTORY_PARTITION "factory_data"
-#define FACTORY_NAMESPACE "factory"
 
 // Norm params from the current model's signed payload, held across the inference
 // loop alongside the interpreter they belong to. The device z-scores features with
@@ -105,22 +101,8 @@ static int8_t quantize(float value, const TfLiteTensor *tensor) {
 }
 
 static int load_server_pubkey(uint8_t pub[ECDSA_P256_PUBKEY_LENGTH]) {
-  int err = nvs_flash_init_partition(FACTORY_PARTITION);
-  if (err != ESP_OK) {
-    ESP_LOGE(tag, "factory nvs init: %s", esp_err_to_name(err));
-    return err;
-  }
-  nvs_handle_t handle;
-  err = nvs_open_from_partition(FACTORY_PARTITION, FACTORY_NAMESPACE, NVS_READONLY, &handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(tag, "factory nvs open: %s", esp_err_to_name(err));
-    return err;
-  }
   size_t len = ECDSA_P256_PUBKEY_LENGTH;
-  err = nvs_get_blob(handle, "srv_pub", pub, &len);
-  nvs_close(handle);
-  if (err != ESP_OK) ESP_LOGE(tag, "read srv_pub: %s", esp_err_to_name(err));
-  return err;
+  return factory_data_get_blob("srv_pub", pub, &len);
 }
 
 // Verify the signed model payload and locate its embedded tflite, loading the norm

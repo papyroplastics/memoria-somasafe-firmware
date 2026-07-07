@@ -5,8 +5,6 @@
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <nvs_flash.h>
-#include <nvs.h>
 #include <host/ble_att.h>
 #include <host/ble_hs.h>
 
@@ -17,12 +15,10 @@
 #include "ble/client_buffer.h"
 #include "device/service.h"
 #include "utils/ecdsa_utils.h"
+#include "utils/factory_data.h"
 #include "ble/notif_transaction.h"
 
 static const char tag[] = APP_TAG "-device";
-
-#define FACTORY_PARTITION "factory_data"
-#define FACTORY_NAMESPACE "factory"
 
 struct ble_client_buffer device_sign_buffer = BLE_CLIENT_BUFFER_INIT("sign");
 
@@ -31,51 +27,16 @@ struct ble_client_buffer device_sign_buffer = BLE_CLIENT_BUFFER_INIT("sign");
 static struct transaction_state device_sign_tx = TRANSACTION_STATE_INIT;
 
 static int load_device_privkey(uint8_t priv[ECDSA_P256_PRIVKEY_LENGTH]) {
-  int err = nvs_flash_init_partition(FACTORY_PARTITION);
-  if (err != ESP_OK) {
-    ESP_LOGE(tag, "failed to init factory nvs: %s", esp_err_to_name(err));
-    return err;
-  }
-
-  nvs_handle_t handle;
-  err = nvs_open_from_partition(FACTORY_PARTITION, FACTORY_NAMESPACE,
-      NVS_READONLY, &handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(tag, "failed to open factory namespace: %s", esp_err_to_name(err));
-    return err;
-  }
-
   size_t len = ECDSA_P256_PRIVKEY_LENGTH;
-  err = nvs_get_blob(handle, "dev_priv", priv, &len);
-  nvs_close(handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(tag, "failed to read device private key: %s", esp_err_to_name(err));
-  }
-  return err;
+  return factory_data_get_blob("dev_priv", priv, &len);
 }
 
 // Reads the NUL-terminated serial string into `serial` (capacity `cap`) and
 // stores its length (excluding the terminator) in `*len_out`.
 static int load_device_serial(char *serial, size_t cap, size_t *len_out) {
-  int err = nvs_flash_init_partition(FACTORY_PARTITION);
-  if (err != ESP_OK) {
-    ESP_LOGE(tag, "failed to init factory nvs: %s", esp_err_to_name(err));
-    return err;
-  }
-
-  nvs_handle_t handle;
-  err = nvs_open_from_partition(FACTORY_PARTITION, FACTORY_NAMESPACE,
-      NVS_READONLY, &handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(tag, "failed to open factory namespace: %s", esp_err_to_name(err));
-    return err;
-  }
-
   size_t len = cap;
-  err = nvs_get_str(handle, "serial", serial, &len);
-  nvs_close(handle);
+  int err = factory_data_get_str("serial", serial, &len);
   if (err != ESP_OK) {
-    ESP_LOGE(tag, "failed to read device serial: %s", esp_err_to_name(err));
     return err;
   }
 

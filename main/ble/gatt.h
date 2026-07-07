@@ -20,6 +20,11 @@ extern uint16_t device_sign_chr_handle;
 
 extern uint16_t device_serial_chr_handle;
 
+extern uint16_t ota_version_chr_handle;
+extern uint16_t ota_data_chr_handle;
+extern uint16_t ota_state_chr_handle;
+extern uint16_t ota_signature_chr_handle;
+
 extern const ble_uuid128_t adv_svc_uuid128[];
 extern const uint8_t       adv_svc_uuid128_cnt;
 

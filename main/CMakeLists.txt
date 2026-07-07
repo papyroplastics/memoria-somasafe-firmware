@@ -14,6 +14,8 @@ idf_component_register(
     "${device_src}"
 
   PRIV_REQUIRES
+    app_update
+    esp_app_format
     bt
     nvs_flash
     mbedtls

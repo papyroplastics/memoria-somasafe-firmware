@@ -11,6 +11,7 @@
 #include "ble/gap.h"
 #include "ble/gatt.h"
 #include "ble/client_buffer.h"
+#include "ble/ota.h"
 #include "device/service.h"
 #include "ml/service.h"
 
@@ -65,6 +66,36 @@ uint16_t device_serial_chr_handle;
 const ble_uuid128_t device_serial_chr_uuid = BLE_UUID128_INIT(
     0x6b, 0x29, 0xf4, 0x71, 0x3d, 0x0c, 0x4e, 0x52,
     0x88, 0xa5, 0x1c, 0x7e, 0x9b, 0x0f, 0x33, 0xd1
+);
+
+// OTA service
+const ble_uuid128_t ota_svc_uuid = BLE_UUID128_INIT(
+    0x17, 0x4b, 0xd9, 0x03, 0x6c, 0x2f, 0x8a, 0x9e,
+    0xe1, 0x4d, 0xc8, 0x40, 0xd2, 0xf5, 0xa7, 0xb1
+);
+
+uint16_t ota_version_chr_handle;
+const ble_uuid128_t ota_version_chr_uuid = BLE_UUID128_INIT(
+    0x6b, 0x0f, 0x88, 0x3e, 0x5d, 0xc2, 0x17, 0xa0,
+    0x26, 0x4b, 0xe5, 0x88, 0x41, 0x9c, 0x3f, 0x7a
+);
+
+uint16_t ota_data_chr_handle;
+const ble_uuid128_t ota_data_chr_uuid = BLE_UUID128_INIT(
+    0xde, 0xc9, 0x52, 0x0a, 0xe8, 0x64, 0xd1, 0xb7,
+    0x58, 0x4c, 0xa3, 0xf4, 0x90, 0x2b, 0x6e, 0x1c
+);
+
+uint16_t ota_state_chr_handle;
+const ble_uuid128_t ota_state_chr_uuid = BLE_UUID128_INIT(
+    0xa8, 0x3f, 0xc7, 0x4d, 0xb0, 0x91, 0x5e, 0x8a,
+    0xf2, 0x45, 0xc6, 0x30, 0xab, 0x17, 0x4d, 0xe9
+);
+
+uint16_t ota_signature_chr_handle;
+const ble_uuid128_t ota_signature_chr_uuid = BLE_UUID128_INIT(
+    0x81, 0x2e, 0x75, 0xb3, 0x06, 0xaf, 0x44, 0x9d,
+    0x7c, 0x4e, 0x09, 0x1b, 0x3d, 0xce, 0xf2, 0x58
 );
 
 const ble_uuid128_t adv_svc_uuid128[] = { ppg_svc_uuid, ml_svc_uuid, device_svc_uuid };
@@ -148,6 +179,54 @@ static struct ble_gatt_svc_def gatt_svcs[] = {
         .cpfd = 0,
       },
       BLE_GATT_BUFFER_CHRS_DEF(device_sign_buffer),
+      {0},
+    }
+  },
+  {
+    .type = BLE_GATT_SVC_TYPE_PRIMARY,
+    .uuid = &ota_svc_uuid.u,
+    .includes = NULL,
+    .characteristics = (struct ble_gatt_chr_def[]) {
+      {
+        .uuid = &ota_version_chr_uuid.u,
+        .access_cb = ble_ota_version_chr_access_cb,
+        .arg = NULL,
+        .descriptors = NULL,
+        .flags = GATT_CHR_READ_FLAGS,
+        .min_key_size = 0,
+        .val_handle = &ota_version_chr_handle,
+        .cpfd = 0,
+      },
+      {
+        .uuid = &ota_data_chr_uuid.u,
+        .access_cb = ble_ota_data_chr_access_cb,
+        .arg = NULL,
+        .descriptors = NULL,
+        .flags = GATT_CHR_WRITE_FLAGS,
+        .min_key_size = 0,
+        .val_handle = &ota_data_chr_handle,
+        .cpfd = 0,
+      },
+      {
+        .uuid = &ota_state_chr_uuid.u,
+        .access_cb = ble_ota_state_chr_access_cb,
+        .arg = NULL,
+        .descriptors = NULL,
+        .flags = GATT_CHR_READ_FLAGS | GATT_CHR_WRITE_FLAGS | GATT_CHR_NOTIFY_FLAGS,
+        .min_key_size = 0,
+        .val_handle = &ota_state_chr_handle,
+        .cpfd = 0,
+      },
+      {
+        .uuid = &ota_signature_chr_uuid.u,
+        .access_cb = ble_ota_signature_chr_access_cb,
+        .arg = NULL,
+        .descriptors = NULL,
+        .flags = GATT_CHR_WRITE_FLAGS,
+        .min_key_size = 0,
+        .val_handle = &ota_signature_chr_handle,
+        .cpfd = 0,
+      },
       {0},
     }
   },

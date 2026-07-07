@@ -43,6 +43,13 @@ int ecdsa_verify(const uint8_t pub[ECDSA_P256_PUBKEY_LENGTH],
   int err = sha256_compute(data, len, hash);
   if (err) return err;
 
+  return ecdsa_verify_digest(pub, hash, sig, sig_len);
+}
+
+int ecdsa_verify_digest(const uint8_t pub[ECDSA_P256_PUBKEY_LENGTH],
+    const uint8_t digest[SHA256_DIGEST_LENGTH], const uint8_t *sig,
+    size_t sig_len) {
+  int err;
   mbedtls_ecdsa_context ctx;
   mbedtls_ecp_group grp;
   mbedtls_ecp_point q;
@@ -59,7 +66,7 @@ int ecdsa_verify(const uint8_t pub[ECDSA_P256_PUBKEY_LENGTH],
   err = mbedtls_ecp_set_public_key(MBEDTLS_ECP_DP_SECP256R1, &ctx, &q);
   if (err) goto end;
 
-  err = mbedtls_ecdsa_read_signature(&ctx, hash, sizeof(hash), sig, sig_len);
+  err = mbedtls_ecdsa_read_signature(&ctx, digest, SHA256_DIGEST_LENGTH, sig, sig_len);
 
 end:
   mbedtls_ecdsa_free(&ctx);

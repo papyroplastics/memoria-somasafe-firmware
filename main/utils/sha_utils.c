@@ -4,29 +4,43 @@
 
 #include "utils/sha_utils.h"
 
-int sha256_compute(const uint8_t *data, size_t len,
-    uint8_t out[SHA256_DIGEST_LENGTH]) {
+int sha256_stream_begin(struct sha256_stream *stream) {
+  mbedtls_sha256_init(&stream->ctx);
+  return mbedtls_sha256_starts(&stream->ctx, 0);
+}
+
+int sha256_stream_update(struct sha256_stream *stream,
+    const uint8_t *data, size_t len) {
   if (data == NULL && len != 0) {
     return 1;
   }
-
-  int err = 0;
-  mbedtls_sha256_context sha_ctx = {0};
-
-  mbedtls_sha256_init(&sha_ctx);
-
-  err = mbedtls_sha256_starts(&sha_ctx, 0);
-  if (err) goto end;
-
-  if (len != 0) {
-    err = mbedtls_sha256_update(&sha_ctx, data, len);
-    if (err) goto end;
+  if (len == 0) {
+    return 0;
   }
+  return mbedtls_sha256_update(&stream->ctx, data, len);
+}
 
-  err = mbedtls_sha256_finish(&sha_ctx, out);
+int sha256_stream_final(struct sha256_stream *stream,
+    uint8_t out[SHA256_DIGEST_LENGTH]) {
+  int err = mbedtls_sha256_finish(&stream->ctx, out);
+  mbedtls_sha256_free(&stream->ctx);
+  return err;
+}
 
-end:
-  mbedtls_sha256_free(&sha_ctx);
+int sha256_compute(const uint8_t *data, size_t len,
+    uint8_t out[SHA256_DIGEST_LENGTH]) {
+  struct sha256_stream stream;
+
+  int err = sha256_stream_begin(&stream);
+  if (err) goto abort;
+
+  err = sha256_stream_update(&stream, data, len);
+  if (err) goto abort;
+
+  return sha256_stream_final(&stream, out);
+
+abort:
+  mbedtls_sha256_free(&stream.ctx);
   return err;
 }
 

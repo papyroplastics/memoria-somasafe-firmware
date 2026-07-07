@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Use legacy advertising with the extended adv API
 #define EXT_ADV_LEGACY_PDU 1
 #define SMP_SECURITY_LEVEL 0
@@ -24,5 +28,9 @@ int ble_init();
 void ble_task(void *param);
 
 int ble_work_queue_push_task(void (*cb)(void *), void *arg);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif
 
 #endif // BLE_HOST_H
