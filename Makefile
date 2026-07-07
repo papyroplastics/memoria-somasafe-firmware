@@ -40,6 +40,9 @@ format:
 factory-nvs:
 	uv run -m scripts.gen_factory_nvs shared/gen/server-public-key.pem
 
+export-image: ${BIN}
+	uv run -m scripts.export_image ${BIN} --interface 1 --contracts 1
+
 test-model:
 	uv run -m scripts.test_model models/feature-mlp/post-train-opti.tflite datasets --results=100
 
