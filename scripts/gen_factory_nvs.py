@@ -28,7 +28,6 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
 FIRMWARE_DIR = Path(__file__).resolve().parent.parent
-OUT_DIR = FIRMWARE_DIR / 'shared' / 'gen'
 NAMESPACE = "factory"
 
 # Generated serials are "SN" followed by 12 uppercase hex chars (6 random bytes).
@@ -86,16 +85,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("server_pub", type=Path, nargs="?", help="server public key (PEM)")
     parser.add_argument("esp_priv", type=Path, nargs="?", help="device private key (PEM)")
-    parser.add_argument(
-        "--serial",
+    parser.add_argument("--serial",
         help="device serial to use instead of a random one (format SN + 12 hex chars)",
     )
-    parser.add_argument(
-        "--out",
-        type=Path,
-        default=OUT_DIR / "factory_nvs.csv",
-        help="output CSV path (default: firmware/factory_nvs.csv)",
-    )
+    parser.add_argument("--out", type=Path, help=f"output CSV path")
     args = parser.parse_args()
 
     if args.esp_priv is not None:

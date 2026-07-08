@@ -19,6 +19,7 @@ shared:
 	else \
 		git clone ${shared_repo} shared; \
 	fi
+	$(MAKE) -C shared setup
 
 monitor:
 	idf.py -p ${port_usb} flash monitor
@@ -37,14 +38,12 @@ qemu: ${BIN}
 format:
 	clang-format -i ${SRC} ${HDR}
 
-factory-nvs:
-	uv run -m scripts.gen_factory_nvs shared/gen/server-public-key.pem
-
 export-image: ${BIN}
 	uv run -m scripts.export_image ${BIN} --interface 1 --contracts 1
 
 test-model:
-	uv run -m scripts.test_model models/feature-mlp/post-train-opti.tflite datasets --results=100
+	uv run -m scripts.test_model shared/gen/models/feature-mlp/quantized.tflite datasets --results=100
 
 seria-write:
 	uv run -m scripts.serial_write ${port_uart} datasets --rate=5000
+
