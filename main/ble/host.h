@@ -10,7 +10,7 @@ extern "C" {
 
 // Use legacy advertising with the extended adv API
 #define EXT_ADV_LEGACY_PDU 1
-#define SMP_SECURITY_LEVEL 0
+#define SMP_SECURITY_LEVEL 3
 
 // Version of the whole app<->firmware BLE contract: every service framing
 // (client buffer, reconstruction layer, PPG/ML/device services) and the model
