@@ -16,8 +16,6 @@ from .lib.notif_transaction import TransactionReassembler
 
 DEV_NAME = "SomaSafe Device"
 
-# The buffer characteristics share generic UUIDs across services, so the device
-# service's copies must be picked out by walking that service specifically.
 BUFFER_UUIDS = (BUF_CHR_UUID, BUF_STATE_CHR_UUID, BUF_SIZE_DSC_UUID, BUF_POS_DSC_UUID)
 
 
@@ -79,8 +77,6 @@ async def sign_payload(payload: bytes) -> bytes:
         await buffer.ready()
 
         await done.wait()
-        # The task resets the buffer to NOT_READY after reading it; confirm the
-        # state notification reflecting that has reached us.
         await buffer.wait_state(BUFFER_STATE_NOT_READY)
         print("Buffer reset to NOT_READY by the signing task", file=sys.stderr)
 
@@ -108,15 +104,13 @@ def verify(pubkey_path: Path, payload: bytes, signature: bytes):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Upload an arbitrary payload over BLE, have the device sign "
-                    "it with its ECDSA private key, and optionally verify the "
-                    "returned signature.")
+        description="Upload a payload over BLE, have the device sign it, and optionally verify the signature.")
     parser.add_argument('--size', type=int, default=256,
-                        help="random payload size in bytes (default 256)")
+                        help="Random payload size in bytes.")
     parser.add_argument('--payload', type=Path,
-                        help="file to sign instead of a random payload")
+                        help="File to sign instead of a random payload.")
     parser.add_argument('--pubkey', type=Path,
-                        help="device public key (PEM) to verify the signature against")
+                        help="Device public key (PEM) to verify against.")
     args = parser.parse_args()
 
     payload = args.payload.read_bytes() if args.payload else secrets.token_bytes(args.size)

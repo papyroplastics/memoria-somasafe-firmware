@@ -1,11 +1,4 @@
-"""Flash a firmware image over the BLE OTA service.
-
-Signs the image with the server key (must match the device's factory srv_pub),
-streams it through the OTA service state machine and, after the device verifies
-and reboots, reconnects and reads the version characteristic to confirm the
-running build changed. The image is the plain app binary produced by the build
-(build/somasafe-firmware.bin).
-"""
+"""Flash a firmware image over the BLE OTA service: signs it with the server key, streams it through the OTA service state machine, and confirms the device reboots into the new version."""
 
 import sys
 import asyncio
@@ -121,18 +114,16 @@ async def confirm_update(old_version: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Sign a firmware image, upload it over the BLE OTA service "
-                    "and confirm the device reboots into it.")
+    parser = argparse.ArgumentParser(description=__doc__)
 
     parser.add_argument('image', type=Path, nargs='?',
                         default=Path('build/somasafe-firmware.bin'),
-                        help="app image to flash (default build/somasafe-firmware.bin)")
+                        help="App image to flash.")
     parser.add_argument('--server-key', type=Path,
                         default=Path(__file__).resolve().parent.parent / 'shared' / 'gen' / 'server-private-key.pem',
-                        help="ECDSA private key to sign the image with (must match the device's srv_pub)")
+                        help="ECDSA private key to sign the image with.")
     parser.add_argument('--no-confirm', action='store_true',
-                        help="skip reconnecting after the reboot to re-read the version")
+                        help="Skip reconnecting after the reboot to confirm the version.")
     args = parser.parse_args()
 
     image = args.image.read_bytes()

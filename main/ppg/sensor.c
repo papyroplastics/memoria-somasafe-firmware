@@ -3,7 +3,6 @@
 
 #include <driver/uart.h>
 #include <esp_log.h>
-#include <esp_random.h>
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -43,8 +42,6 @@ static const uart_config_t uart_config = {
   .source_clk = UART_SCLK_DEFAULT,
 };
 
-static const uint8_t uart_marker[4] = { 0xAA, 0xBB, 0xCC, 0xDD };
-
 static void uart_read_all(uint8_t *buf, size_t len) {
   size_t received = 0;
   while (received < len) {
@@ -54,54 +51,17 @@ static void uart_read_all(uint8_t *buf, size_t len) {
   }
 }
 
-static void uart_write_all(const uint8_t *buf, size_t len) {
-  uart_write_bytes(UART_PORT, buf, len);
-}
-
-// Respond to host-initiated handshake: scan for the host's marker, read its
-// nonce, echo marker + nonce + our nonce back, then consume the host's echo
-// of our nonce before data streaming begins.
-static void uart_handshake(void) {
-  size_t matched = 0;
-  while (matched < sizeof(uart_marker)) {
-    uint8_t b;
-    uart_read_all(&b, 1);
-    if (b == uart_marker[matched]) matched++;
-    else matched = (b == uart_marker[0]) ? 1 : 0;
-  }
-
-  uint8_t host_nonce[4];
-  uart_read_all(host_nonce, sizeof(host_nonce));
-
-  uint32_t esp_nonce = esp_random();
-  uint8_t reply[sizeof(uart_marker) + sizeof(host_nonce) + sizeof(esp_nonce)];
-  memcpy(reply, uart_marker, sizeof(uart_marker));
-  memcpy(reply + sizeof(uart_marker), host_nonce, sizeof(host_nonce));
-  memcpy(reply + sizeof(uart_marker) + sizeof(host_nonce), &esp_nonce, sizeof(esp_nonce));
-  uart_write_all(reply, sizeof(reply));
-
-  uint8_t echo[sizeof(esp_nonce)];
-  uart_read_all(echo, sizeof(echo));
-
-  ESP_LOGI(tag, "UART handshake complete\n");
-}
-
-// Read one sample cycle (2 PPG + 1 ACC floats + postfix byte) and ack it by
-// echoing the postfix byte back.
 static void get_sample(float ppg[2], float acc[1]) {
-  uint8_t buf[3 * sizeof(float) + 1];
+  uint8_t buf[3 * sizeof(float)];
   uart_read_all(buf, sizeof(buf));
   memcpy(ppg, buf, 2 * sizeof(float));
   memcpy(acc, buf + 2 * sizeof(float), sizeof(float));
-  uart_write_all(&buf[sizeof(buf) - 1], 1);
 }
 
 static uint32_t now_ms(void) {
   return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
 }
 
-// Read one second of data (64 PPG + 32 ACC samples) into the `sec`-th slot of
-// the slice, one sample cycle at a time.
 static void get_second(struct ppg_slice *slice, uint16_t sec) {
   uint16_t ppg_base = sec * PPG_SAMPLE_RATE;
   uint16_t acc_base = sec * PPG_ACC_RATE;
@@ -110,8 +70,6 @@ static void get_second(struct ppg_slice *slice, uint16_t sec) {
   }
 }
 
-// Notify the `sec`-th second of the slice over BLE. end_ms is only meaningful
-// (and only sent) on the window-end call, by which point it is set.
 static void send_second(struct transaction_state *tx, const struct ppg_slice *slice,
                         uint16_t sec, bool window_start, bool window_end) {
   ppg_data_notify_send(tx,
@@ -131,8 +89,6 @@ void ppg_task(void *param) {
     ESP_LOGE(tag, "UART init failed");
     esp_restart();
   }
-
-  uart_handshake();
 
   uint32_t next_sequence_n = 0;
 

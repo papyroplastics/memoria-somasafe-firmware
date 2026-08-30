@@ -3,8 +3,9 @@ import asyncio
 
 from bleak import BleakClient, BleakBackend
 
-# Characteristic / descriptor UUIDs exposed by the firmware
-# (see main/ble/client_buffer.c and main/ml/service.c).
+PPG_SVC_UUID        = "c7e4f210-3a8b-4d56-9c2f-1e7b0a5d3c8e"
+ML_SVC_UUID         = "a4523840-7543-2492-fe43-b7dad4432738"
+
 BUF_CHR_UUID        = "8f04f3a6-1dcb-8a86-c04d-6fa38c87f25a"
 BUF_STATE_CHR_UUID  = "794d330a-8c90-229b-b94c-d1025b1c7d19"
 BUF_SIZE_DSC_UUID   = "237384c8-bf34-5587-ab48-ae4b0a7e2585"
@@ -39,18 +40,15 @@ async def negotiate_mtu(client: BleakClient):
     print(f"MTU set to {client.mtu_size}", file=sys.stderr)
 
 
-async def discover_attributes(client: BleakClient, uuids) -> dict:
-    """Walk the GATT table and return a {uuid: attribute} dict.
-
-    uuids is an iterable of characteristic/descriptor UUIDs to locate; the
-    returned dict maps each one to its BleakGATTCharacteristic/Descriptor.
-    Exits if any requested UUID is missing on the connected device.
-    """
+async def discover_attributes(client: BleakClient, uuids, service=None) -> dict:
+    """Walk the GATT table and return a {uuid: attribute} dict."""
     wanted = set(uuids)
     found = {}
 
     print("\nDevice services:", file=sys.stderr)
     for svc in client.services:
+        if service is not None and svc.uuid != service:
+            continue
         print(f"- Service \"{svc.description}\" - {svc.uuid} - {svc.handle}", file=sys.stderr)
         for chr in svc.characteristics:
             print(f"  - Characteristic \"{chr.description}\" - {chr.uuid} - {chr.handle}", file=sys.stderr)

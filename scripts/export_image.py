@@ -1,11 +1,4 @@
-"""Export a built firmware image for backend distribution.
-
-Copies the app binary into shared/gen/firmware/{version}/ along with a
-metadata.json describing the build (version string from version.txt, BLE
-interface version and the model contract versions it can run). The backend
-seed script scans that directory and publishes each exported version through
-the /ota endpoints. Re-exporting a version overwrites its directory.
-"""
+"""Export a built firmware image and its build metadata into shared/gen/firmware/{version}/ for the backend seed script to publish."""
 
 import argparse
 import json
@@ -14,9 +7,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# esp_app_desc_t.version field size; the build truncates longer strings.
 VERSION_MAX_BYTES = 32
-# Hard cap set by the OTA partition size (partitions.csv).
 IMAGE_MAX_BYTES = 1024 * 1024
 
 DEFAULT_OUT_DIR = Path(__file__).resolve().parent.parent / 'shared' / 'gen' / 'firmware'
@@ -35,15 +26,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('image', type=Path, nargs='?',
                         default=Path('build/somasafe-firmware.bin'),
-                        help="app image to export (default build/somasafe-firmware.bin)")
+                        help="App image to export.")
     parser.add_argument('--interface', type=int, required=True,
-                        help="BLE_INTERFACE_VERSION the image was built with")
+                        help="BLE_INTERFACE_VERSION the image was built with.")
     parser.add_argument('--contracts', required=True,
-                        help="comma-separated ML_CONTRACT_VERSIONs the image supports")
+                        help="Comma-separated ML_CONTRACT_VERSIONs the image supports.")
     parser.add_argument('--version-file', type=Path, default=Path('version.txt'),
-                        help="file holding the version string baked into the image")
+                        help="File holding the version string baked into the image.")
     parser.add_argument('--out-dir', type=Path, default=DEFAULT_OUT_DIR,
-                        help="export root (default shared/gen/firmware)")
+                        help="Export root.")
     args = parser.parse_args()
 
     contracts = [int(c) for c in args.contracts.split(',')]

@@ -18,13 +18,7 @@ ML_ERROR_NAMES = {
 
 
 class MlService:
-    """Collects inference results notified by the firmware ML service.
-
-    Each result is one reconstruction-layer transaction (see notif_transaction)
-    whose reassembled payload is the service stream: a 4-byte little-endian
-    sample sequence number followed by [features | score], where features are
-    little-endian float32 bytes and score is int8.
-    """
+    """Collects inference results notified by the firmware ML service."""
 
     SEQUENCE_LEN = 4
 
@@ -38,12 +32,7 @@ class MlService:
         self.errors_chr = buffer.attrs[ML_ERRORS_CHR_UUID]
 
     async def get_results(self, result_n: int) -> list:
-        """Flip the model buffer to READY and collect up to result_n results.
-
-        Returns a list of (sequence_n, features, score) tuples where features
-        are the raw float32 byte string and score the raw int8 byte string for
-        one sample.
-        """
+        """Flip the model buffer to READY and collect up to result_n results."""
         data_len = self.SEQUENCE_LEN + self.features_len + self.score_len
         results = []
         done = asyncio.Event()

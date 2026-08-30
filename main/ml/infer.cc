@@ -6,6 +6,7 @@
 #include <sdkconfig.h>
 #include <esp_log.h>
 #include <esp_system.h>
+#include <esp_timer.h>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -31,9 +32,36 @@
 
 static const char tag[] = APP_TAG "-ml-infer";
 
-// Norm params from the current model's signed payload, held across the inference
-// loop alongside the interpreter they belong to. The device z-scores features with
-// these before quantizing, since the int8 model takes already-normalized input.
+#if ENABLE_INSTRUMENTATION
+#define INSTR_REPORT_WINDOWS 16
+
+static uint32_t instr_windows;
+static int64_t instr_extract_total_us, instr_extract_max_us;
+static int64_t instr_invoke_total_us, instr_invoke_max_us;
+
+static void instr_record(int64_t extract_us, int64_t invoke_us) {
+  instr_windows++;
+  instr_extract_total_us += extract_us;
+  instr_invoke_total_us += invoke_us;
+  if (extract_us > instr_extract_max_us) instr_extract_max_us = extract_us;
+  if (invoke_us > instr_invoke_max_us) instr_invoke_max_us = invoke_us;
+
+  if (instr_windows < INSTR_REPORT_WINDOWS) return;
+
+  ESP_LOGI(tag, "instrumentation over %u windows: extract mean %.2f ms max %.2f ms | "
+                "invoke mean %.2f ms max %.2f ms",
+           (unsigned)instr_windows,
+           (double)instr_extract_total_us / instr_windows / 1000.0,
+           (double)instr_extract_max_us / 1000.0,
+           (double)instr_invoke_total_us / instr_windows / 1000.0,
+           (double)instr_invoke_max_us / 1000.0);
+
+  instr_windows = 0;
+  instr_extract_total_us = instr_extract_max_us = 0;
+  instr_invoke_total_us = instr_invoke_max_us = 0;
+}
+#endif
+
 static float feat_mean[ML_N_FEATURES];
 static float feat_std[ML_N_FEATURES];
 
@@ -89,6 +117,12 @@ static ml_error_code ml_build_interpreter(const uint8_t *model_data) {
 
   input_tensor = interpreter->input(0);
   score_tensor = interpreter->output(0);
+
+#if ENABLE_INSTRUMENTATION
+  ESP_LOGI(tag, "instrumentation: tflm arena %d of %d bytes used",
+           (int)interpreter->arena_used_bytes(), (int)tensor_arena_size);
+#endif
+
   return ML_ERR_NONE;
 }
 
@@ -105,24 +139,28 @@ static int load_server_pubkey(uint8_t pub[ECDSA_P256_PUBKEY_LENGTH]) {
   return factory_data_get_blob("srv_pub", pub, &len);
 }
 
-// Verify the signed model payload and locate its embedded tflite, loading the norm
-// params into feat_mean/feat_std. Layout (LE, BLE interface v1): u16 sig_len |
-// sig[sig_len] | u16 contract_version | f32 mean[N] | f32 std[N] | tflite. The
-// ECDSA P-256 / SHA-256 signature covers everything after it — the server's
-// canonical signed bytes (contract_version .. tflite, shared/docs/model-signing.md).
 static ml_error_code parse_payload(const uint8_t *data, size_t size,
                                    const uint8_t **tflite_out) {
-  const size_t norm_len = ml_contract_norm_len();
   if (data == NULL || size < 2) return ML_ERR_PAYLOAD;
 
   uint16_t sig_len;
   memcpy(&sig_len, data, sizeof(sig_len));
-  size_t header = 2 + (size_t)sig_len;
-  if (header + 2 + norm_len > size) return ML_ERR_PAYLOAD;   // contract + norm must fit
+  size_t norm_off = 2 + (size_t)sig_len;
+  if (norm_off + 2 > size) return ML_ERR_PAYLOAD;
+
+  uint16_t norm_len;
+  memcpy(&norm_len, data + norm_off, sizeof(norm_len));
+  if (norm_len != ml_contract_norm_len()) {
+    ESP_LOGE(tag, "payload carries %u norm bytes, contract wants %u",
+             (unsigned)norm_len, (unsigned)ml_contract_norm_len());
+    return ML_ERR_PAYLOAD;
+  }
 
   const uint8_t *sig  = data + 2;
-  const uint8_t *body = data + header;
-  size_t body_len = size - header;
+  const uint8_t *norm = data + norm_off + 2;
+  const uint8_t *body = norm + norm_len;
+  if ((size_t)(body - data) + 2 > size) return ML_ERR_PAYLOAD;  // contract must fit
+  size_t body_len = size - (size_t)(body - data);
 
   uint8_t pub[ECDSA_P256_PUBKEY_LENGTH];
   if (load_server_pubkey(pub) != ESP_OK) return ML_ERR_PAYLOAD;
@@ -138,9 +176,9 @@ static ml_error_code parse_payload(const uint8_t *data, size_t size,
     return ML_ERR_PAYLOAD;
   }
 
-  memcpy(feat_mean, body + 2, ML_N_FEATURES * sizeof(float));
-  memcpy(feat_std,  body + 2 + ML_N_FEATURES * sizeof(float), ML_N_FEATURES * sizeof(float));
-  *tflite_out = body + 2 + norm_len;
+  memcpy(feat_mean, norm, ML_N_FEATURES * sizeof(float));
+  memcpy(feat_std, norm + ML_N_FEATURES * sizeof(float), ML_N_FEATURES * sizeof(float));
+  *tflite_out = body + 2;
   return ML_ERR_NONE;
 }
 
@@ -222,14 +260,18 @@ void ml_task(void *param) {
     uint32_t sequence_n = slice->sequence_n;
     ESP_LOGD(tag, "acquired sample %d from ring buffer", sequence_n);
 
+#if ENABLE_INSTRUMENTATION
+    int64_t extract_start_us = esp_timer_get_time();
+#endif
     ml_extract_features(slice, features);
+#if ENABLE_INSTRUMENTATION
+    int64_t extract_us = esp_timer_get_time() - extract_start_us;
+#endif
     ppg_ring_release_read();
     ml_normalize_features(features, norm_features, feat_mean, feat_std);
 
     ESP_LOGD(tag, "finished feature extraction on sample %d", sequence_n);
 
-    // Fill input buffer from the normalized copy; `features` stays raw so the
-    // phone receives un-normalized features it can reproduce on-device.
     for (int j = 0; j < ML_N_FEATURES; j++) {
       int8_t v = quantize(norm_features[j], input_tensor);
       input_tensor->data.int8[j] = v;
@@ -237,7 +279,13 @@ void ml_task(void *param) {
 
     ESP_LOGD(tag, "performing inference on sample %d", sequence_n);
 
+#if ENABLE_INSTRUMENTATION
+    int64_t invoke_start_us = esp_timer_get_time();
+#endif
     TfLiteStatus status = interpreter->Invoke();
+#if ENABLE_INSTRUMENTATION
+    instr_record(extract_us, esp_timer_get_time() - invoke_start_us);
+#endif
     ble_client_buffer_unlock(&ml_model_buffer);
 
     if (status != kTfLiteOk) {

@@ -17,17 +17,7 @@ BUFFER_STATE_READY = 1
 
 
 class ClientBuffer:
-    """Client side of the firmware's client_buffer GATT service.
-
-    Drives a single buffer (data characteristic plus state/size/pos attributes),
-    picking its attributes out of the {uuid: attribute} dict returned by
-    discover_attributes.
-
-    The state characteristic is kept mirrored in self.state: start() reads it
-    once and subscribes to its notifications, so consumer-driven transitions on
-    the device (e.g. the buffer being reset to NOT_READY after a task reads it)
-    are reflected here without polling.
-    """
+    """Client side of the firmware's client_buffer GATT service."""
 
     def __init__(self, client: BleakClient, attrs: dict):
         self.client = client
@@ -44,11 +34,7 @@ class ClientBuffer:
         self._state_changed.set()
 
     async def start(self):
-        """Subscribe to state notifications and read the current state.
-
-        Must be called once after construction before set_size/write/set_state.
-        (__init__ can't await, so the initial read lives here.)
-        """
+        """Subscribe to state notifications and read the current buffer state."""
         await self.client.start_notify(self.state_chr, self._on_state)
         data = await self.client.read_gatt_char(self.state_chr)
         self.state = int.from_bytes(data, byteorder='little')
@@ -61,15 +47,11 @@ class ClientBuffer:
 
     async def set_state(self, state: int):
         if state == BUFFER_STATE_NOT_READY:
-            # The device resets asynchronously (worker task) and notifies; our
-            # subscription updates self.state, so just wait for it to land.
             await self.client.write_gatt_char(self.state_chr, u8_bytes(BUFFER_STATE_NOT_READY))
             await self.wait_state(BUFFER_STATE_NOT_READY)
             print("Buffer state set to NOT_READY", file=sys.stderr)
 
         elif state == BUFFER_STATE_READY:
-            # Readying does not notify (no state change to report back), so track
-            # it locally.
             await self.client.write_gatt_char(self.state_chr, u8_bytes(BUFFER_STATE_READY))
             self.state = BUFFER_STATE_READY
             print("Buffer state set to READY", file=sys.stderr)
@@ -116,8 +98,7 @@ class ClientBuffer:
         return False
 
     async def upload(self, data: bytes):
-        """Reset the buffer to NOT_READY, size it and write data, leaving it
-        staged but not yet readable by the consumer."""
+        """Reset the buffer to NOT_READY, size it, and write the data."""
         await self.set_state(BUFFER_STATE_NOT_READY)
         await self.set_size(len(data))
         await self.write(data)

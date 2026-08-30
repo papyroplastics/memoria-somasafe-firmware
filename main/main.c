@@ -31,7 +31,7 @@ void app_main(void) {
   err = worker_init();
   if (err != 0) return;
 
-  xTaskCreate(worker_task, "Worker", 2048, NULL, 4, NULL);
+  xTaskCreate(worker_task, "Worker", 4096, NULL, 4, NULL);
   xTaskCreate(ppg_task, "PPG Sensor", 4096, NULL, 5, NULL);
   xTaskCreate(ml_task, "ML Infer", 4096, NULL, 5, NULL);
   xTaskCreate(device_sign_task, "Device Sign", 8192, NULL, 5, NULL);

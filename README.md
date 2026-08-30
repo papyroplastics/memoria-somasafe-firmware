@@ -13,7 +13,8 @@ PPG/ACC, receives models over BLE, and runs int8 inference with TFLite Micro. Th
 app implements this BLE contract (see `application/README.md`); the Python scripts under
 `scripts/` exercise the same services independently, useful for testing without the app
 (`test_model.py` drives model-transfer + results end to end, `serial_write.py` feeds
-sensor data over UART).
+sensor data over UART). Both replay the same `.ssds` subject export the backend writes to
+`shared/gen/exports/` — see [Test harness](#test-harness).
 
 ## Project structure
 
@@ -39,8 +40,9 @@ main/
 
 `scripts/` holds the Python test harness (`gen_factory_nvs.py`, `serial_write.py`,
 `test_model.py`, `test_sign.py`, `test_ota.py`, and a `lib/` mirroring the on-device BLE contract
-client-side) plus `export_image.py`, which publishes a built image for backend OTA
-distribution — see the docstrings/`--help` of each for usage. Other top-level files:
+client-side, including the `.ssds` export reader) plus `export_image.py`, which publishes a
+built image for backend OTA distribution — see the docstrings/`--help` of each for usage.
+Other top-level files:
 `managed_components/` (downloaded ESP-IDF dependencies), `dependencies.lock` (locked
 versions), `sdkconfig.defaults` (baseline SDK config).
 
@@ -54,11 +56,12 @@ payload. Firmware-specific behavior:
 - ESP-IDF + NimBLE initialization, GAP advertising, and LE Secure Connections link
   security (encrypted + MITM-authenticated via passkey, bonding) are all wired up.
 - **PPG service**: reads raw float samples from UART (2 BVP @ 64 Hz + 1 ACC magnitude @
-  32 Hz per cycle) and notifies them every second, fragmented to the MTU. A UART test
-  protocol (startup handshake + per-cycle ack byte) stands in for the real sensor; no
-  reconnection support — restart the ESP to re-run the host script. Each completed
-  8-second window (512 PPG + 256 ACC floats) is pushed into a ring buffer with a
-  monotonically increasing sequence number for downstream consumers.
+  32 Hz per cycle) and notifies them every second, fragmented to the MTU. The host stream
+  stands in for the real sensor and is entirely unframed — no handshake, no ack — so the
+  ESP must be restarted before each host run for its window sequence numbers to line up
+  with the start of the recording. Each completed 8-second window (512 PPG + 256 ACC
+  floats) is pushed into a ring buffer with a monotonically increasing sequence number for
+  downstream consumers.
 - **Model-transfer / client buffer**: size/position descriptors, chunked writes, and a
   READY/NOT_READY state characteristic that gates writes and notifies on change; a
   consumer that finishes reading a readied buffer resets it immediately, releasing the
@@ -67,9 +70,13 @@ payload. Firmware-specific behavior:
   17-feature extraction (esp-dsp: time-domain stats + FFT-based spectral features, Hann
   window, hardware-accelerated `dsps_fft2r_fc32`) — see
   [`shared/docs/model-types.md`](shared/docs/model-types.md) for the feature list, shared
-  verbatim with the backend and the app. Features are z-scored with the mean/std carried
-  in the signed model payload, then quantized to feed the int8 model; the float32 feature
-  vector and int8 score are notified back over BLE.
+  verbatim with the backend and the app. Features are z-scored with the per-wearer mean/std
+  the client supplies alongside the model (unsigned — the server has no say in them), then
+  quantized to feed the int8 model; the float32 feature vector and the int8 score are
+  notified back over BLE **raw**, so the phone receives features it can reproduce itself.
+  With `ENABLE_INSTRUMENTATION` (`main/common.h`) the task also reports the TFLM arena
+  high-water mark once per model load and a rolling mean/max of the extraction and
+  inference latencies every 16 windows.
 - **Device service**: signs an arbitrary-length uploaded payload with the factory device
   key and notifies the DER signature back; a read-only characteristic returns the device
   serial. See [`shared/docs/device-attestation.md`](shared/docs/device-attestation.md).
@@ -88,9 +95,13 @@ payload. Firmware-specific behavior:
   model-contract versions) to `shared/gen/firmware/{version}/`, where the backend
   seed script picks it up for distribution through the `/ota` endpoints.
 - Model verification (`ml/infer.cc`): the uploaded payload is rejected
-  (`ML_ERR_PAYLOAD`, buffer invalidated) unless its ECDSA P-256/SHA-256 signature
-  verifies against the factory-provisioned `srv_pub` and its contract version matches
-  `ml/contract.h` (which fixes the norm-param layout and the model's input shape).
+  (`ML_ERR_PAYLOAD`, buffer invalidated) unless its normalization block is the length its
+  contract fixes, its ECDSA P-256/SHA-256 signature verifies against the
+  factory-provisioned `srv_pub`, and the signed contract version matches `ml/contract.h`
+  (which fixes that norm-param length and the model's input shape). The signature covers
+  `contract_version ‖ tflite` only, and those sit last in the payload so the device
+  verifies them in place — the norm params ahead of them are the wearer's own and are not
+  signed.
 
 ## Build and run
 
@@ -98,12 +109,42 @@ payload. Firmware-specific behavior:
 
 - `make shared` → links `../shared` (monorepo layout) or, when absent, clones
   [`memoria-somasafe-shared`](https://github.com/papyroplastics/memoria-somasafe-shared.git)
-  into `shared/` (gitignored) so the project builds standalone.
+  into `shared/` (gitignored) so the project builds standalone. It also runs the shared
+  makefile, which generates the `.ssds` protobuf bindings the harness imports as
+  `shared.gen.code.dataset_pb2` (needs `protoc` on the PATH).
 - `make` / `make build` → `idf.py build`
 - `make run` → `idf.py flash monitor`
 - `make debug`, `make gdb`, `make qemu`
 - `make export-image` → publish the built image to `shared/gen/firmware/` for
   backend OTA distribution
+- `make serial-write` / `make test-model` → the two halves of the test harness below
+
+## Test harness
+
+Both halves replay one subject export written by the backend
+(`cd backend && uv run -m scripts.system.export_subject_data 1` →
+`shared/gen/exports/S1.ssds`), which must be gapless — no `--missing-*`, or the device's
+window sequence numbers stop indexing the file.
+
+```bash
+# 1. restart the ESP (the stream is unframed; this is what aligns sequence number 0)
+# 2. stand in for the sensor
+uv run -m scripts.serial_write /dev/serial/by-id/usb-1a86_USB_Single_Serial_... \
+    shared/gen/exports/S1.ssds --rate=900
+# 3. stand in for the phone: sign + upload the model, score what comes back
+uv run -m scripts.test_model shared/gen/models/feature-mlp/quantized.tflite \
+    shared/gen/exports/S1.ssds --results=60
+```
+
+`--rate` is the cycle rate in Hz; 32 is real time and ~900 is as fast as 115200 baud
+carries. `test_model.py` prints, per window, the label from the export against the
+device's own prediction, plus the MSE between the device's feature vector and the exported
+one — that MSE is the check that the on-device extractor still matches the backend's.
+
+Link security applies to the harness as much as to the phone, so the host has to pair with
+the passkey the device logs to its console before any of this works. For host-driven runs
+it is usually simpler to set `SMP_SECURITY_LEVEL` to 0 in `main/ble/host.h` and rebuild,
+which drops the requirement entirely.
 
 ## Factory identity provisioning
 

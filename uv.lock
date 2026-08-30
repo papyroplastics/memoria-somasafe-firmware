@@ -886,6 +886,7 @@ dependencies = [
     { name = "cryptography" },
     { name = "matplotlib" },
     { name = "numpy" },
+    { name = "protobuf" },
     { name = "pyqt6" },
     { name = "pyserial" },
 ]
@@ -902,6 +903,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=44.0.0" },
     { name = "matplotlib", specifier = ">=3.10.9" },
     { name = "numpy", specifier = ">=2.4.6" },
+    { name = "protobuf", specifier = ">=4.21.0" },
     { name = "pyqt6", specifier = "==6.11.*" },
     { name = "pyserial", specifier = ">=3.5" },
 ]
