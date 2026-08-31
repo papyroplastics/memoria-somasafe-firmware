@@ -8,18 +8,21 @@ extern "C" {
 #endif
 
 #define ML_BATCH_SIZE 1
-#define ML_N_FEATURES 17
+#define ML_N_FEATURES 20
 
 // Call once at startup before any ml_extract_features call.
 void ml_features_init(void);
 
-// Extract 17 features from one 8-second PPG slice.
-// Feature order (must match extract_features in get_dataset.py):
+// Extract 20 features from one 8-second PPG slice.
+// Feature order (must match extract_features in backend/ml/preprocessing.py):
 //   [0..6]  BVP: mean, std, min, max, range, rms, mean-abs-diff
 //   [7..13] ACC: mean, std, min, max, range, rms, mean-abs-diff
 //   [14]    BVP zero-crossing rate
 //   [15]    BVP dominant frequency (Hz)
 //   [16]    BVP HR-band power ratio (0.7–3.5 Hz)
+//   [17]    BVP pulse-band spectral centroid (Hz, 0.5–4.0 Hz)
+//   [18]    BVP pulse-band spectral spread (Hz)
+//   [19]    BVP log power ratio above the pulse band
 void ml_extract_features(const struct ppg_slice *slice, float *features);
 
 // Z-score normalize ML_N_FEATURES features into out_features with the given per-feature

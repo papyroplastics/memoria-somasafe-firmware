@@ -5,8 +5,14 @@
 #include "ml/features.h"
 
 #define FFT_N           PPG_SLICE_PPG_COUNT  // 512
+#define BIN_HZ          ((float)PPG_SAMPLE_RATE / (float)FFT_N)  // 0.125 Hz/bin
 #define HR_BAND_LO_BIN  6                    // 0.75 Hz  (first bin ≥ 0.7 Hz at 0.125 Hz/bin)
 #define HR_BAND_HI_BIN  28                   // 3.50 Hz
+// Pulse band for the three shape features, 0.5–4.0 Hz = 30–240 bpm. Wider than the HR
+// band above so a slowed rhythm still falls inside it.
+#define PULSE_BAND_LO_BIN 4                  // 0.50 Hz
+#define PULSE_BAND_HI_BIN 32                 // 4.00 Hz
+#define FEATURE_EPS     1e-9f
 
 static __attribute__((aligned(16))) float s_hann[FFT_N];
 static __attribute__((aligned(16))) float s_fft[FFT_N * 2];  // interleaved Re/Im
@@ -88,6 +94,7 @@ void ml_extract_features(const struct ppg_slice *slice, float* features) {
     dsps_bit_rev_fc32(s_fft, FFT_N);
 
     float total_power = 0.0f, band_power = 0.0f;
+    float pulse_power = 0.0f, pulse_wsum = 0.0f, pulse_wsum2 = 0.0f, high_power = 0.0f;
     int   peak_bin    = 1;
     float peak_power  = 0.0f;
     for (int k = 0; k <= FFT_N / 2; k++) {
@@ -96,11 +103,29 @@ void ml_extract_features(const struct ppg_slice *slice, float* features) {
         float p  = re * re + im * im;
         total_power += p;
         if (k >= HR_BAND_LO_BIN && k <= HR_BAND_HI_BIN) band_power += p;
+        if (k >= PULSE_BAND_LO_BIN && k <= PULSE_BAND_HI_BIN) {
+            float f = (float)k * BIN_HZ;
+            pulse_power += p;
+            pulse_wsum  += p * f;
+            pulse_wsum2 += p * f * f;
+        } else if (k > PULSE_BAND_HI_BIN) {
+            high_power += p;
+        }
         if (k > 0 && p > peak_power) { peak_power = p; peak_bin = k; }
     }
 
-    features[15] = (float)peak_bin * ((float)PPG_SAMPLE_RATE / (float)FFT_N);
+    features[15] = (float)peak_bin * BIN_HZ;
     features[16] = band_power / (total_power + 1e-8f);
+
+    // Pulse-band shape. The centroid is the power-weighted mean in-band frequency and the
+    // spread its standard deviation, computed from the raw moments as sqrt(E[f²] - E[f]²)
+    // so the accumulating loop above needs only one pass.
+    float pulse_total = pulse_power + FEATURE_EPS;
+    float centroid    = pulse_wsum / pulse_total;
+    float variance    = pulse_wsum2 / pulse_total - centroid * centroid;
+    features[17] = centroid;
+    features[18] = sqrtf(variance < 0.0f ? 0.0f : variance);
+    features[19] = logf(high_power / (total_power + FEATURE_EPS) + FEATURE_EPS);
 }
 
 void ml_normalize_features(const float *features, float *out_features,
