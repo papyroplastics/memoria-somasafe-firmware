@@ -7,6 +7,7 @@ import numpy as np
 from shared.gen.code import dataset_pb2 as pb
 
 FORMAT_VERSION = 1
+NORM_EPS = 1e-6
 
 
 class CaptureExport:
@@ -22,8 +23,19 @@ class CaptureExport:
         self.path = Path(path)
         self.subject = dataset.subject
         self.windows = {w.sequence_n: w for w in dataset.windows}
-        self.norm_mean = np.frombuffer(dataset.norm_mean, dtype='<f4')
-        self.norm_std = np.frombuffer(dataset.norm_std, dtype='<f4')
+        self.norm_mean, self.norm_std = self._norm_stats()
+
+    def _norm_stats(self) -> tuple[np.ndarray, np.ndarray]:
+        """The wearer's per-feature z-score parameters, over every raw feature vector the
+        export carries — the same quantity the phone derives from its own capture store,
+        and what the model payload's norm block must hold."""
+        vectors = [np.frombuffer(w.features, dtype='<f4')
+                   for w in self.windows.values() if w.features]
+        if not vectors:
+            return np.empty(0, dtype=np.float32), np.empty(0, dtype=np.float32)
+        matrix = np.stack(vectors)
+        return (matrix.mean(axis=0).astype(np.float32),
+                matrix.std(axis=0).astype(np.float32) + NORM_EPS)
 
     def features(self, sequence_n: int) -> np.ndarray | None:
         window = self.windows.get(sequence_n)

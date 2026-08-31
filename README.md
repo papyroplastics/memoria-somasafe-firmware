@@ -139,7 +139,10 @@ uv run -m scripts.test_model shared/gen/models/feature-mlp/quantized.tflite \
 `--rate` is the cycle rate in Hz; 32 is real time and ~900 is as fast as 115200 baud
 carries. `test_model.py` prints, per window, the label from the export against the
 device's own prediction, plus the MSE between the device's feature vector and the exported
-one — that MSE is the check that the on-device extractor still matches the backend's.
+one — that MSE is the check that the on-device extractor still matches the backend's. It
+also stands in for the phone's normalization: the payload's norm block is the per-feature
+mean/std over the export's own feature vectors (`scripts/lib/capture.py`), which is what
+the app derives from its capture store.
 
 Link security applies to the harness as much as to the phone, so the host has to pair with
 the passkey the device logs to its console before any of this works. For host-driven runs
